@@ -6,6 +6,7 @@ import { config } from '@/lib/config';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { resolveWithin } from '@/lib/paths';
+import { getAgentWorkspaceCandidates, readAgentWorkspaceFile } from '@/lib/agent-workspace';
 
 function resolveAgentWorkspacePath(workspace: string): string {
   if (isAbsolute(workspace)) return resolve(workspace)
@@ -58,13 +59,11 @@ export async function GET(
     let source: 'workspace' | 'database' | 'none' = 'none';
     try {
       const agentConfig = agent.config ? JSON.parse(agent.config) : {};
-      if (agentConfig.workspace) {
-        const safeWorkspace = resolveAgentWorkspacePath(agentConfig.workspace);
-        const safeWorkingPath = resolveWithin(safeWorkspace, 'WORKING.md');
-        if (existsSync(safeWorkingPath)) {
-          workingMemory = readFileSync(safeWorkingPath, 'utf-8');
-          source = 'workspace';
-        }
+      const candidates = getAgentWorkspaceCandidates(agentConfig, agent.name);
+      const match = readAgentWorkspaceFile(candidates, ['WORKING.md', 'working.md']);
+      if (match.exists) {
+        workingMemory = match.content;
+        source = 'workspace';
       }
     } catch (err) {
       logger.warn({ err, agent: agent.name }, 'Failed to read WORKING.md from workspace');
@@ -153,8 +152,9 @@ export async function PUT(
     let savedToWorkspace = false;
     try {
       const agentConfig = agent.config ? JSON.parse(agent.config) : {};
-      if (agentConfig.workspace) {
-        const safeWorkspace = resolveAgentWorkspacePath(agentConfig.workspace);
+      const candidates = getAgentWorkspaceCandidates(agentConfig, agent.name);
+      const safeWorkspace = candidates[0];
+      if (safeWorkspace) {
         const safeWorkingPath = resolveWithin(safeWorkspace, 'WORKING.md');
         mkdirSync(dirname(safeWorkingPath), { recursive: true });
         writeFileSync(safeWorkingPath, newContent, 'utf-8');
@@ -236,8 +236,9 @@ export async function DELETE(
     // Best effort: clear workspace WORKING.md if agent workspace is configured
     try {
       const agentConfig = agent.config ? JSON.parse(agent.config) : {};
-      if (agentConfig.workspace) {
-        const safeWorkspace = resolveAgentWorkspacePath(agentConfig.workspace);
+      const candidates = getAgentWorkspaceCandidates(agentConfig, agent.name);
+      const safeWorkspace = candidates[0];
+      if (safeWorkspace) {
         const safeWorkingPath = resolveWithin(safeWorkspace, 'WORKING.md');
         mkdirSync(dirname(safeWorkingPath), { recursive: true });
         writeFileSync(safeWorkingPath, '', 'utf-8');

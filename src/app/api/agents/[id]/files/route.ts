@@ -5,9 +5,17 @@ import { config } from '@/lib/config'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, resolve } from 'node:path'
 import { resolveWithin } from '@/lib/paths'
+import { getAgentWorkspaceCandidates, readAgentWorkspaceFile } from '@/lib/agent-workspace'
 import { logger } from '@/lib/logger'
 
 const ALLOWED_FILES = new Set(['agent.md', 'identity.md', 'soul.md', 'WORKING.md', 'TOOLS.md'])
+const FILE_ALIASES: Record<string, string[]> = {
+  'agent.md': ['agent.md', 'AGENT.md', 'MISSION.md', 'USER.md'],
+  'identity.md': ['identity.md', 'IDENTITY.md'],
+  'soul.md': ['soul.md', 'SOUL.md'],
+  'WORKING.md': ['WORKING.md', 'working.md'],
+  'TOOLS.md': ['TOOLS.md', 'tools.md'],
+}
 
 function resolveAgentWorkspacePath(workspace: string): string {
   if (isAbsolute(workspace)) return resolve(workspace)
@@ -37,12 +45,11 @@ export async function GET(
     if (!agent) return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
 
     const agentConfig = agent.config ? JSON.parse(agent.config) : {}
-    const workspace = agentConfig.workspace
-    if (!workspace || typeof workspace !== 'string') {
+    const candidates = getAgentWorkspaceCandidates(agentConfig, agent.name)
+    if (candidates.length === 0) {
       return NextResponse.json({ error: 'Agent workspace is not configured' }, { status: 400 })
     }
-
-    const safeWorkspace = resolveAgentWorkspacePath(workspace)
+    const safeWorkspace = candidates[0]
     const requested = (new URL(request.url).searchParams.get('file') || '').trim()
     const files = requested ? [requested] : ['agent.md', 'identity.md', 'soul.md', 'WORKING.md', 'TOOLS.md']
 
@@ -51,12 +58,9 @@ export async function GET(
       if (!ALLOWED_FILES.has(file)) {
         return NextResponse.json({ error: `Unsupported file: ${file}` }, { status: 400 })
       }
-      const safePath = resolveWithin(safeWorkspace, file)
-      if (existsSync(safePath)) {
-        payload[file] = { exists: true, content: readFileSync(safePath, 'utf-8') }
-      } else {
-        payload[file] = { exists: false, content: '' }
-      }
+      const aliases = FILE_ALIASES[file] || [file]
+      const match = readAgentWorkspaceFile(candidates, aliases)
+      payload[file] = { exists: match.exists, content: match.content }
     }
 
     return NextResponse.json({
@@ -92,12 +96,12 @@ export async function PUT(
     if (!agent) return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
 
     const agentConfig = agent.config ? JSON.parse(agent.config) : {}
-    const workspace = agentConfig.workspace
-    if (!workspace || typeof workspace !== 'string') {
+    const candidates = getAgentWorkspaceCandidates(agentConfig, agent.name)
+    const safeWorkspace = candidates[0]
+    if (!safeWorkspace) {
       return NextResponse.json({ error: 'Agent workspace is not configured' }, { status: 400 })
     }
 
-    const safeWorkspace = resolveAgentWorkspacePath(workspace)
     const safePath = resolveWithin(safeWorkspace, file)
     mkdirSync(dirname(safePath), { recursive: true })
     writeFileSync(safePath, content, 'utf-8')
