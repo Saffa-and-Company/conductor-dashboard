@@ -30,6 +30,7 @@ import { IntegrationsPanel } from '@/components/panels/integrations-panel'
 import { AlertRulesPanel } from '@/components/panels/alert-rules-panel'
 import { MultiGatewayPanel } from '@/components/panels/multi-gateway-panel'
 import { SuperAdminPanel } from '@/components/panels/super-admin-panel'
+import { ProjectsPanel } from '@/components/panels/projects-panel'
 import { OfficePanel } from '@/components/panels/office-panel'
 import { GitHubSyncPanel } from '@/components/panels/github-sync-panel'
 import { ChatPanel } from '@/components/chat/chat-panel'
@@ -270,6 +271,8 @@ function ContentRouter({ tab }: { tab: string }) {
       return <SuperAdminPanel />
     case 'workspaces':
       return <SuperAdminPanel />
+    case 'projects':
+      return <ProjectsPanel />
     default:
       return <Dashboard />
   }
