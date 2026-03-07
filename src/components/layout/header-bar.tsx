@@ -41,7 +41,7 @@ const QUICK_NAV_COMMANDS: Array<{ panel: string; title: string; aliases: string[
 ]
 
 export function HeaderBar() {
-  const { activeTab, connection, sessions, unreadNotificationCount, activeTenant, activeProject, dashboardMode } = useMissionControl()
+  const { connection, sessions, unreadNotificationCount, activeTenant, activeProject, dashboardMode } = useMissionControl()
   const { isConnected, reconnect } = useWebSocket()
   const navigateToPanel = useNavigateToPanel()
   const prefetchPanel = usePrefetchPanel()
@@ -341,14 +341,10 @@ export function HeaderBar() {
 
         {/* Right: status + actions */}
         <div className="flex items-center justify-end gap-1.5 md:gap-2 min-w-0 shrink-0 ml-auto">
-          <div className="hidden 2xl:flex items-center gap-3">
+          <div className="hidden xl:flex items-center gap-3">
             <Stat label="Sessions" value={`${activeSessions}/${sessions.length}`} />
             <NavigationLatencyStat />
-            <ConnectionBadge connection={connection} onReconnect={reconnect} />
             <SseBadge connected={connection.sseConnected ?? false} />
-          </div>
-
-          <div className="hidden xl:block">
             <DigitalClock />
           </div>
 
@@ -361,23 +357,6 @@ export function HeaderBar() {
             title="Search"
           >
             <SearchIcon />
-          </Button>
-
-          {/* Mobile connection dot (visible below xl) */}
-          <div className="xl:hidden">
-            <MobileConnectionDot connection={connection} onReconnect={reconnect} />
-          </div>
-
-          <Button
-            variant={activeTab === 'chat' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => navigateToPanel('chat')}
-            onMouseEnter={() => prefetchPanel('chat')}
-            onFocus={() => prefetchPanel('chat')}
-            className="px-2.5"
-          >
-            <ChatIcon />
-            <span className="hidden sm:inline">Chat</span>
           </Button>
 
           <Button
@@ -468,166 +447,6 @@ export function HeaderBar() {
         document.body
       )}
     </header>
-  )
-}
-
-function MobileConnectionDot({
-  connection,
-  onReconnect,
-}: {
-  connection: { isConnected: boolean; reconnectAttempts: number }
-  onReconnect: () => void
-}) {
-  const { dashboardMode } = useMissionControl()
-  const isLocal = dashboardMode === 'local'
-  const isReconnecting = !connection.isConnected && connection.reconnectAttempts > 0
-
-  let dotClass: string
-  let title: string
-
-  if (isLocal) {
-    dotClass = 'bg-void-cyan'
-    title = 'Local Mode'
-  } else if (connection.isConnected) {
-    dotClass = 'bg-green-500'
-    title = 'Gateway connected'
-  } else if (isReconnecting) {
-    dotClass = 'bg-amber-500 animate-pulse'
-    title = `Reconnecting (${connection.reconnectAttempts})`
-  } else {
-    dotClass = 'bg-red-500 animate-pulse'
-    title = 'Gateway disconnected — tap to reconnect'
-  }
-
-  return (
-    <Button
-      variant="ghost"
-      size="icon-sm"
-      onClick={!isLocal && !connection.isConnected ? onReconnect : undefined}
-      className={`md:hidden ${
-        isLocal || connection.isConnected ? 'cursor-default hover:bg-transparent' : ''
-      }`}
-      title={title}
-    >
-      <span className={`w-2 h-2 rounded-full ${dotClass}`} />
-    </Button>
-  )
-}
-
-function ConnectionBadge({
-  connection,
-  onReconnect,
-}: {
-  connection: ConnectionStatus
-  onReconnect: () => void
-}) {
-  const { dashboardMode } = useMissionControl()
-  const isLocal = dashboardMode === 'local'
-  const isReconnecting = !connection.isConnected && connection.reconnectAttempts > 0
-  const [showTooltip, setShowTooltip] = useState(false)
-
-  if (isLocal) {
-    return (
-      <div className="flex items-center gap-1.5 text-xs px-2 py-1 rounded-md cursor-default">
-        <span className="text-muted-foreground">Gateway</span>
-        <span className="w-1.5 h-1.5 rounded-full bg-void-cyan" />
-        <span className="font-medium font-mono-tight text-void-cyan">Local</span>
-      </div>
-    )
-  }
-
-  let dotClass: string
-  let label: string
-  let borderClass: string
-
-  if (connection.isConnected) {
-    dotClass = 'bg-green-500'
-    label = connection.latency != null ? `${connection.latency}ms` : 'Online'
-    borderClass = 'border-green-500/30'
-  } else if (isReconnecting) {
-    dotClass = 'bg-amber-500 animate-pulse'
-    label = `Retry ${connection.reconnectAttempts}`
-    borderClass = 'border-amber-500/30'
-  } else {
-    dotClass = 'bg-red-500 animate-pulse'
-    label = 'Offline'
-    borderClass = 'border-red-500/30'
-  }
-
-  const wsHost = extractWsHost(connection.url)
-
-  return (
-    <div
-      className="relative"
-      onMouseEnter={() => setShowTooltip(true)}
-      onMouseLeave={() => setShowTooltip(false)}
-    >
-      <Button
-        variant="ghost"
-        size="xs"
-        onClick={!connection.isConnected ? onReconnect : undefined}
-        className={`gap-1.5 border ${borderClass} ${
-          connection.isConnected
-            ? 'cursor-default hover:bg-transparent'
-            : ''
-        }`}
-      >
-        <span className={`w-1.5 h-1.5 rounded-full ${dotClass}`} />
-        <span className="text-muted-foreground">GW</span>
-        <span className={`font-medium font-mono-tight ${
-          connection.isConnected ? 'text-green-400' : isReconnecting ? 'text-amber-400' : 'text-red-400'
-        }`}>
-          {label}
-        </span>
-      </Button>
-
-      {showTooltip && (
-        <div className="absolute top-full right-0 mt-1.5 z-50 w-56 rounded-lg border border-border bg-card/95 backdrop-blur-md p-3 shadow-xl text-xs">
-          <div className="font-medium text-foreground mb-2">Gateway Connection</div>
-          <div className="space-y-1.5 text-muted-foreground">
-            <div className="flex justify-between">
-              <span>Status</span>
-              <span className={connection.isConnected ? 'text-green-400' : isReconnecting ? 'text-amber-400' : 'text-red-400'}>
-                {connection.isConnected ? 'Connected' : isReconnecting ? 'Reconnecting' : 'Disconnected'}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span>Host</span>
-              <span className="font-mono text-foreground/80 truncate ml-2">{wsHost}</span>
-            </div>
-            {connection.latency != null && (
-              <div className="flex justify-between">
-                <span>Latency</span>
-                <span className="font-mono text-foreground/80">{connection.latency}ms</span>
-              </div>
-            )}
-            <div className="flex justify-between">
-              <span>WebSocket</span>
-              <span className={connection.isConnected ? 'text-green-400' : 'text-red-400'}>
-                {connection.isConnected ? 'Live' : 'Down'}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span>SSE</span>
-              <span className={connection.sseConnected ? 'text-green-400' : 'text-muted-foreground/50'}>
-                {connection.sseConnected ? 'Live' : 'Off'}
-              </span>
-            </div>
-            {!connection.isConnected && connection.reconnectAttempts > 0 && (
-              <div className="flex justify-between">
-                <span>Retries</span>
-                <span className="text-amber-400">{connection.reconnectAttempts}</span>
-              </div>
-            )}
-          </div>
-          {!connection.isConnected && (
-            <div className="mt-2 pt-2 border-t border-border/40 text-muted-foreground/60 text-[10px]">
-              Click badge to reconnect
-            </div>
-          )}
-        </div>
-      )}
-    </div>
   )
 }
 
@@ -791,14 +610,6 @@ function SseBadge({ connected }: { connected: boolean }) {
         {connected ? 'Live' : 'Off'}
       </span>
     </div>
-  )
-}
-
-function ChatIcon() {
-  return (
-    <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M2 3h12v8H6l-3 3v-3H2V3z" />
-    </svg>
   )
 }
 
