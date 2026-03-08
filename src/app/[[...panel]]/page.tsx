@@ -43,6 +43,7 @@ import { getPluginPanel } from '@/lib/plugins'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { LocalModeBanner } from '@/components/layout/local-mode-banner'
 import { UpdateBanner } from '@/components/layout/update-banner'
+import { OpenClawUpdateBanner } from '@/components/layout/openclaw-update-banner'
 import { OnboardingWizard } from '@/components/onboarding/onboarding-wizard'
 import { Loader } from '@/components/ui/loader'
 import { ProjectManagerModal } from '@/components/modals/project-manager-modal'
@@ -63,7 +64,7 @@ function isLocalHost(hostname: string): boolean {
 export default function Home() {
   const router = useRouter()
   const { connect } = useWebSocket()
-  const { activeTab, setActiveTab, setCurrentUser, setDashboardMode, setGatewayAvailable, setCapabilitiesChecked, setSubscription, setDefaultOrgName, setUpdateAvailable, setShowOnboarding, liveFeedOpen, toggleLiveFeed, showProjectManagerModal, setShowProjectManagerModal, fetchProjects, setChatPanelOpen } = useMissionControl()
+  const { activeTab, setActiveTab, setCurrentUser, setDashboardMode, setGatewayAvailable, setCapabilitiesChecked, setSubscription, setDefaultOrgName, setUpdateAvailable, setOpenclawUpdate, setShowOnboarding, liveFeedOpen, toggleLiveFeed, showProjectManagerModal, setShowProjectManagerModal, fetchProjects, setChatPanelOpen } = useMissionControl()
 
   // Sync URL → Zustand activeTab
   const pathname = usePathname()
@@ -185,6 +186,22 @@ export default function Home() {
       })
       .catch(() => {})
 
+    // Check for OpenClaw updates
+    fetch('/api/openclaw/version')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.updateAvailable) {
+          setOpenclawUpdate({
+            installed: data.installed,
+            latest: data.latest,
+            releaseUrl: data.releaseUrl,
+            releaseNotes: data.releaseNotes,
+            updateCommand: data.updateCommand,
+          })
+        }
+      })
+      .catch(() => {})
+
     // Check capabilities, then conditionally connect to gateway
     fetch('/api/status?action=capabilities')
       .then(res => res.ok ? res.json() : null)
@@ -257,6 +274,7 @@ export default function Home() {
         <HeaderBar />
         <LocalModeBanner />
         <UpdateBanner />
+        <OpenClawUpdateBanner />
         <main id="main-content" className="flex-1 overflow-auto pb-16 md:pb-0" role="main">
           <div aria-live="polite" className="flex flex-col min-h-full">
             <ErrorBoundary key={activeTab}>

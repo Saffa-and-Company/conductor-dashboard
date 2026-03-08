@@ -363,6 +363,12 @@ interface MissionControlStore {
   setUpdateAvailable: (info: { latestVersion: string; releaseUrl: string; releaseNotes: string } | null) => void
   dismissUpdate: (version: string) => void
 
+  // OpenClaw update availability
+  openclawUpdate: { installed: string; latest: string; releaseUrl: string; releaseNotes: string; updateCommand: string } | null
+  openclawUpdateDismissedVersion: string | null
+  setOpenclawUpdate: (info: { installed: string; latest: string; releaseUrl: string; releaseNotes: string; updateCommand: string } | null) => void
+  dismissOpenclawUpdate: (version: string) => void
+
   // WebSocket & Connection
   connection: ConnectionStatus
   lastMessage: any
@@ -572,6 +578,18 @@ export const useMissionControl = create<MissionControlStore>()(
     dismissUpdate: (version) => {
       try { localStorage.setItem('mc-update-dismissed-version', version) } catch {}
       set({ updateDismissedVersion: version })
+    },
+
+    // OpenClaw update availability
+    openclawUpdate: null,
+    openclawUpdateDismissedVersion: (() => {
+      if (typeof window === 'undefined') return null
+      try { return localStorage.getItem('mc-openclaw-update-dismissed') } catch { return null }
+    })(),
+    setOpenclawUpdate: (info) => set({ openclawUpdate: info }),
+    dismissOpenclawUpdate: (version) => {
+      try { localStorage.setItem('mc-openclaw-update-dismissed', version) } catch {}
+      set({ openclawUpdateDismissedVersion: version })
     },
 
     // Connection state
