@@ -24,7 +24,7 @@ Manage agent fleets, track tasks, monitor costs, and orchestrate workflows — a
 
 Running AI agents at scale means juggling sessions, tasks, costs, and reliability across multiple models and channels. Mission Control gives you:
 
-- **31 panels** — Tasks, agents, skills, logs, tokens, memory, cron, alerts, webhooks, pipelines, and more
+- **32 panels** — Tasks, agents, skills, logs, tokens, memory, security, cron, alerts, webhooks, pipelines, and more
 - **Real-time everything** — WebSocket + SSE push updates, smart polling that pauses when you're away
 - **Zero external dependencies** — SQLite database, single `pnpm start` to run, no Redis/Postgres/Docker required
 - **Role-based access** — Viewer, operator, and admin roles with session + API key auth
@@ -120,6 +120,10 @@ bash scripts/security-audit.sh
 - Multi-project task organization with per-project ticket prefixes
 - Per-agent rate limiting with `x-agent-name` identity-based quotas
 - Agent self-registration endpoint for autonomous agent onboarding
+- Security audit panel with posture scoring, secret detection, trust scoring, and MCP call auditing
+- Four-layer agent eval framework (output, trace, component, drift detection)
+- Agent optimization endpoint with token efficiency, tool patterns, and fleet benchmarks
+- Hook profiles (minimal/standard/strict) for tunable security strictness
 
 ### Known Limitations
 
@@ -176,6 +180,15 @@ Define agent personality, capabilities, and behavioral guidelines via SOUL markd
 ### Agent Messaging
 Session-threaded inter-agent communication via the comms API (`a2a:*`, `coord:*`, `session:*`) with coordinator inbox support and runtime tool-call visibility in the `agent-comms` feed.
 
+### Security Audit & Agent Trust
+Dedicated security audit panel with real-time posture scoring (0-100), secret detection across agent messages, MCP tool call auditing, injection attempt tracking, and per-agent trust scores. Hook profiles (minimal/standard/strict) let operators tune security strictness per deployment. Auth failures, rate limit hits, and injection attempts are logged automatically as security events.
+
+### Agent Eval Framework
+Four-layer evaluation stack for agent quality: output evals (task completion scoring against golden datasets), trace evals (convergence scoring — >3.0 indicates looping), component evals (tool reliability with p50/p95/p99 latency from MCP call logs), and drift detection (10% threshold vs 4-week rolling baseline). Manage golden datasets and trigger eval runs via API or UI.
+
+### Agent Optimization
+API endpoint agents can call for self-improvement recommendations. Analyzes token efficiency (tokens/task vs fleet average), tool usage patterns (success/failure rates, redundant calls), and generates prioritized recommendations. Fleet benchmarks provide percentile rankings across all agents.
+
 ### Integrations
 Outbound webhooks with delivery history, configurable alert rules with cooldowns, and multi-gateway connection management. Optional 1Password CLI integration for secret management.
 
@@ -202,11 +215,11 @@ mission-control/
 │   ├── app/
 │   │   ├── page.tsx           # SPA shell — routes all panels
 │   │   ├── login/page.tsx     # Login page
-│   │   └── api/               # 98 REST API routes
+│   │   └── api/               # 101 REST API routes
 │   ├── components/
 │   │   ├── layout/            # NavRail, HeaderBar, LiveFeed
 │   │   ├── dashboard/         # Overview dashboard
-│   │   ├── panels/            # 31 feature panels
+│   │   ├── panels/            # 32 feature panels
 │   │   └── chat/              # Agent chat UI
 │   ├── lib/
 │   │   ├── auth.ts            # Session + API key auth, RBAC
@@ -215,7 +228,7 @@ mission-control/
 │   │   ├── claude-tasks.ts     # Claude Code team task/config scanner
 │   │   ├── schedule-parser.ts  # Natural language → cron expression parser
 │   │   ├── recurring-tasks.ts  # Recurring task template spawner
-│   │   ├── migrations.ts      # 36 schema migrations
+│   │   ├── migrations.ts      # 39 schema migrations
 │   │   ├── scheduler.ts       # Background task scheduler
 │   │   ├── webhooks.ts        # Outbound webhook delivery
 │   │   ├── websocket.ts       # Gateway WebSocket client
@@ -224,6 +237,12 @@ mission-control/
 │   │   ├── skill-sync.ts      # Bidirectional disk ↔ DB skill sync
 │   │   ├── skill-registry.ts  # ClawdHub + skills.sh registry client & security scanner
 │   │   ├── local-agent-sync.ts # Local agent discovery from ~/.agents, ~/.codex, ~/.claude
+│   │   ├── secret-scanner.ts   # Regex-based secret detection (AWS, GitHub, Stripe, JWT, PEM, DB URIs)
+│   │   ├── security-events.ts  # Security event logger + agent trust scoring
+│   │   ├── mcp-audit.ts        # MCP tool call auditing
+│   │   ├── agent-evals.ts      # Four-layer agent eval framework
+│   │   ├── agent-optimizer.ts  # Agent optimization engine
+│   │   ├── hook-profiles.ts    # Security strictness profiles (minimal/standard/strict)
 │   │   └── adapters/          # Framework adapters (openclaw, crewai, langgraph, autogen, claude-sdk, generic)
 │   └── store/index.ts         # Zustand state management
 └── .data/                     # Runtime data (SQLite DB, token logs)
@@ -242,7 +261,7 @@ mission-control/
 | Real-time | WebSocket + Server-Sent Events |
 | Auth | scrypt hashing, session tokens, RBAC |
 | Validation | Zod 4 |
-| Testing | Vitest (165 unit) + Playwright (295 E2E) |
+| Testing | Vitest (282 unit) + Playwright (295 E2E) |
 
 ## Authentication
 
@@ -312,6 +331,19 @@ All endpoints require authentication unless noted. Full reference below.
 - Query params:
   - `hours`: integer window `1..720` (default `24`)
   - `section`: comma-separated subset of `identity,audit,mutations,cost` (default all)
+
+<details>
+<summary><strong>Security & Evals</strong></summary>
+
+| Method | Path | Role | Description |
+|--------|------|------|-------------|
+| `GET` | `/api/security-audit` | admin | Security posture, events, trust scores, MCP audit (`?timeframe=day`) |
+| `GET` | `/api/security-scan` | admin | Static security configuration scan |
+| `GET` | `/api/agents/optimize` | operator | Agent optimization recommendations (`?agent=&hours=24`) |
+| `GET` | `/api/agents/evals` | operator | Agent eval results (`?agent=`, `?action=history&weeks=4`) |
+| `POST` | `/api/agents/evals` | operator | Trigger eval run (`action: 'run'`) or manage golden datasets (`action: 'golden-set'`) |
+
+</details>
 
 <details>
 <summary><strong>Monitoring</strong></summary>

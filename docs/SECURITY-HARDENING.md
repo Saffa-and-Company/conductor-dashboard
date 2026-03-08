@@ -15,9 +15,10 @@ Or use the diagnostics API (admin only):
 
 ```bash
 curl -H "x-api-key: $API_KEY" http://localhost:3000/api/diagnostics
+curl -H "x-api-key: $API_KEY" http://localhost:3000/api/security-audit?timeframe=day
 ```
 
-The `security.score` field (0-100) gives a quick posture assessment.
+The `posture.score` field (0-100) gives a quick posture assessment. The **Security Audit Panel** (`/security` in the dashboard) provides a full real-time view with timeline charts, agent trust scores, and eval results.
 
 ---
 
@@ -122,9 +123,47 @@ All security-relevant events are logged to the audit trail:
 - Settings changes
 - Update operations
 
+Additionally, the **security event system** automatically logs:
+
+- Auth failures (invalid passwords, expired tokens, access denials)
+- Rate limit hits (429 responses with IP/agent correlation)
+- Injection attempts (prompt injection, command injection, exfiltration)
+- Secret exposures (AWS keys, GitHub tokens, Stripe keys, JWTs, private keys detected in agent messages)
+- MCP tool calls (agent, tool, duration, success/failure)
+
+These events feed into the **Security Audit Panel** (`/security`) which provides:
+
+- **Posture score** (0-100) with level badges (hardened/secure/needs-attention/at-risk)
+- **Agent trust scores** — weighted calculation based on auth failures, injection attempts, and task success rates
+- **MCP call audit** — tool-use frequency, success/failure rates per agent
+- **Timeline visualization** — event density over selected timeframe
+
 Configure retention: `MC_RETAIN_AUDIT_DAYS=365` (default: 1 year).
 
-### 8. Data Retention
+### 8. Hook Profiles
+
+Security strictness is tunable via hook profiles in Settings > Security Profiles:
+
+| Profile | Secret Scanning | MCP Auditing | Block on Secrets | Rate Limit Multiplier |
+|---------|----------------|--------------|------------------|----------------------|
+| **minimal** | Off | Off | No | 2x (relaxed) |
+| **standard** (default) | On | On | No | 1x |
+| **strict** | On | On | Yes (blocks messages) | 0.5x (tighter) |
+
+Set via the Settings panel or the `hook_profile` key in the settings API.
+
+### 9. Agent Eval Framework
+
+The four-layer eval stack helps detect degrading agent quality:
+
+- **Output evals** — score task completion against golden datasets
+- **Trace evals** — convergence scoring (>3.0 indicates looping behavior)
+- **Component evals** — tool reliability from MCP call logs (p50/p95/p99 latency)
+- **Drift detection** — 10% threshold vs 4-week rolling baseline triggers alerts
+
+Access via `/api/agents/evals` or the Security Audit Panel's eval section.
+
+### 10. Data Retention
 
 ```env
 MC_RETAIN_ACTIVITIES_DAYS=90       # Activity feed
