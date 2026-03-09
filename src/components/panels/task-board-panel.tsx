@@ -91,6 +91,31 @@ const priorityColors: Record<string, string> = {
   medium: 'border-yellow-500',
   high: 'border-orange-500',
   critical: 'border-red-500',
+  urgent: 'border-red-500',
+}
+
+const conductorStatusColors: Record<string, string> = {
+  queued: 'bg-purple-500/20 text-purple-400',
+  running: 'bg-blue-500/20 text-blue-400',
+  pr_open: 'bg-orange-500/20 text-orange-400',
+  reviewing: 'bg-orange-500/20 text-orange-400',
+  ready: 'bg-teal-500/20 text-teal-400',
+  merged: 'bg-green-500/20 text-green-400',
+  failed: 'bg-red-500/20 text-red-400',
+  cancelled: 'bg-zinc-500/20 text-zinc-400',
+}
+
+const modelTierLabels: Record<number, string> = {
+  1: 'Opus',
+  2: 'Sonnet',
+  3: 'Haiku',
+  4: 'Haiku',
+}
+
+const ciStatusIcons: Record<string, { label: string; className: string }> = {
+  passing: { label: 'CI Pass', className: 'bg-green-500/20 text-green-400' },
+  failing: { label: 'CI Fail', className: 'bg-red-500/20 text-red-400' },
+  pending: { label: 'CI ...', className: 'bg-yellow-500/20 text-yellow-400' },
 }
 
 function useMentionTargets() {
@@ -622,10 +647,10 @@ export function TaskBoardPanel() {
                   }`}
                 >
                   <div className="flex justify-between items-start mb-2">
-                    <h4 className="text-foreground font-medium text-sm leading-tight">
+                    <h4 className="text-foreground font-medium text-sm leading-tight flex-1 mr-2">
                       {task.title}
                     </h4>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1 flex-shrink-0">
                       {task.ticket_ref && (
                         <span className="text-[10px] px-2 py-0.5 rounded bg-primary/20 text-primary">
                           {task.ticket_ref}
@@ -633,11 +658,11 @@ export function TaskBoardPanel() {
                       )}
                       {task.aegisApproved && (
                         <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-700 text-emerald-100">
-                          Aegis Approved
+                          Aegis
                         </span>
                       )}
-                      <span className={`text-xs px-2 py-1 rounded font-medium ${
-                        task.priority === 'critical' ? 'bg-red-500/20 text-red-400' :
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                        task.priority === 'critical' || task.priority === 'urgent' ? 'bg-red-500/20 text-red-400' :
                         task.priority === 'high' ? 'bg-orange-500/20 text-orange-400' :
                         task.priority === 'medium' ? 'bg-yellow-500/20 text-yellow-400' :
                         'bg-green-500/20 text-green-400'
@@ -646,8 +671,58 @@ export function TaskBoardPanel() {
                       </span>
                     </div>
                   </div>
-                  
-                  {task.description && (
+
+                  {/* Conductor metadata badges */}
+                  {task.metadata?.conductor_id && (
+                    <div className="flex flex-wrap gap-1 mb-2">
+                      {/* Conductor status */}
+                      {task.metadata.conductor_status && (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${conductorStatusColors[task.metadata.conductor_status] || 'bg-zinc-500/20 text-zinc-400'}`}>
+                          {task.metadata.conductor_status}
+                        </span>
+                      )}
+                      {/* Model tier */}
+                      {task.metadata.model_tier && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-400 font-medium">
+                          {modelTierLabels[task.metadata.model_tier] || `T${task.metadata.model_tier}`}
+                        </span>
+                      )}
+                      {/* CI status */}
+                      {task.metadata.ci_status && ciStatusIcons[task.metadata.ci_status] && (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${ciStatusIcons[task.metadata.ci_status].className}`}>
+                          {ciStatusIcons[task.metadata.ci_status].label}
+                        </span>
+                      )}
+                      {/* PR link */}
+                      {task.metadata.pr_url && (
+                        <a
+                          href={task.metadata.pr_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 font-medium hover:bg-blue-500/30 transition-smooth"
+                        >
+                          PR #{task.metadata.pr_number}
+                        </a>
+                      )}
+                      {/* Retries */}
+                      {task.metadata.retries > 0 && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 font-medium">
+                          {task.metadata.retries} retries
+                        </span>
+                      )}
+                      {/* tmux alive indicator */}
+                      {task.metadata.tmux_alive && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/20 text-green-400 font-medium flex items-center gap-0.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                          live
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Description — hide for Conductor tasks (they store the full prompt) */}
+                  {task.description && !task.metadata?.conductor_id && (
                     <div className="mb-2 line-clamp-3 overflow-hidden">
                       <MarkdownRenderer content={task.description} preview />
                     </div>
@@ -667,15 +742,28 @@ export function TaskBoardPanel() {
                     <span className="font-medium">{formatTaskTimestamp(task.created_at)}</span>
                   </div>
 
+                  {/* Company/project badge */}
                   {task.project_name && (
                     <div className="text-xs text-muted-foreground mt-1">
-                      Project: {task.project_name}
+                      {task.metadata?.repo_slug ? (
+                        <a
+                          href={`https://github.com/${task.metadata.repo_slug}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="hover:text-foreground transition-smooth"
+                        >
+                          {task.project_name}
+                        </a>
+                      ) : (
+                        task.project_name
+                      )}
                     </div>
                   )}
 
                   {task.tags && task.tags.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-2">
-                      {task.tags.slice(0, 3).map((tag, index) => (
+                      {task.tags.filter(t => t !== task.metadata?.conductor_status).slice(0, 3).map((tag, index) => (
                         <span
                           key={index}
                           className={`text-xs px-2 py-0.5 rounded-full border font-medium ${getTagColor(tag)}`}
@@ -689,7 +777,7 @@ export function TaskBoardPanel() {
                     </div>
                   )}
 
-                  {/* Enhanced timestamp display */}
+                  {/* Updated timestamp */}
                   {task.updated_at && task.updated_at !== task.created_at && (
                     <div className="text-xs text-muted-foreground/70 mt-1">
                       Updated {formatTaskTimestamp(task.updated_at)}
@@ -1010,6 +1098,82 @@ function TaskDetailModal({
                 <span className="text-muted-foreground">Created:</span>
                 <span className="text-foreground ml-2">{new Date(task.created_at * 1000).toLocaleDateString()}</span>
               </div>
+
+              {/* Conductor-specific details */}
+              {task.metadata?.conductor_id && (
+                <>
+                  <div className="col-span-2 border-t border-border pt-3 mt-1">
+                    <span className="text-muted-foreground text-xs font-semibold uppercase tracking-wider">Conductor Details</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Conductor Status:</span>
+                    <span className={`ml-2 text-xs px-2 py-0.5 rounded font-medium ${conductorStatusColors[task.metadata.conductor_status] || 'bg-zinc-500/20 text-zinc-400'}`}>
+                      {task.metadata.conductor_status}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Model:</span>
+                    <span className="text-foreground ml-2">
+                      {modelTierLabels[task.metadata.model_tier] || 'Unknown'} (T{task.metadata.model_tier})
+                    </span>
+                  </div>
+                  {task.metadata.repo_slug && (
+                    <div>
+                      <span className="text-muted-foreground">Repo:</span>
+                      <a
+                        href={`https://github.com/${task.metadata.repo_slug}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-400 hover:text-blue-300 ml-2"
+                      >
+                        {task.metadata.repo_slug}
+                      </a>
+                    </div>
+                  )}
+                  {task.metadata.branch && (
+                    <div>
+                      <span className="text-muted-foreground">Branch:</span>
+                      <span className="text-foreground ml-2 font-mono text-xs">{task.metadata.branch}</span>
+                    </div>
+                  )}
+                  {task.metadata.pr_url && (
+                    <div>
+                      <span className="text-muted-foreground">Pull Request:</span>
+                      <a
+                        href={task.metadata.pr_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-400 hover:text-blue-300 ml-2"
+                      >
+                        PR #{task.metadata.pr_number}
+                      </a>
+                    </div>
+                  )}
+                  {task.metadata.ci_status && (
+                    <div>
+                      <span className="text-muted-foreground">CI Status:</span>
+                      <span className={`ml-2 text-xs px-2 py-0.5 rounded font-medium ${ciStatusIcons[task.metadata.ci_status]?.className || 'bg-zinc-500/20 text-zinc-400'}`}>
+                        {task.metadata.ci_status}
+                      </span>
+                    </div>
+                  )}
+                  {task.metadata.retries > 0 && (
+                    <div>
+                      <span className="text-muted-foreground">Retries:</span>
+                      <span className="text-amber-400 ml-2">{task.metadata.retries}</span>
+                    </div>
+                  )}
+                  <div>
+                    <span className="text-muted-foreground">Tmux Session:</span>
+                    <span className="text-foreground ml-2 font-mono text-xs">
+                      {task.metadata.tmux_session}
+                      {task.metadata.tmux_alive && (
+                        <span className="ml-2 text-green-400">(live)</span>
+                      )}
+                    </span>
+                  </div>
+                </>
+              )}
             </div>
           )}
 

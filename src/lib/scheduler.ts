@@ -1,5 +1,6 @@
 import { getDatabase, logAuditEvent } from './db'
 import { syncAgentsFromConfig } from './agent-sync'
+import { syncConductorData } from './conductor-sync'
 import { config, ensureDirExists } from './config'
 import { join, dirname } from 'path'
 import { readdirSync, statSync, unlinkSync } from 'fs'
@@ -221,6 +222,11 @@ export function initScheduler() {
     logger.warn({ err }, 'Agent auto-sync failed')
   })
 
+  // Auto-sync Conductor data on startup
+  syncConductorData().catch(err => {
+    logger.warn({ err }, 'Conductor auto-sync failed')
+  })
+
   // Register tasks
   const now = Date.now()
   // Stagger the initial runs: backup at ~3 AM, cleanup at ~4 AM (relative to process start)
@@ -272,9 +278,18 @@ export function initScheduler() {
     running: false,
   })
 
+  tasks.set('conductor_sync', {
+    name: 'Conductor Sync',
+    intervalMs: 30_000, // Every 30s — reads active-tasks.json
+    lastRun: null,
+    nextRun: now + 10_000, // First sync 10s after startup
+    enabled: true,
+    running: false,
+  })
+
   // Start the tick loop
   tickInterval = setInterval(tick, TICK_MS)
-  logger.info('Scheduler initialized - backup at ~3AM, cleanup at ~4AM, heartbeat every 5m, webhook retry every 60s, claude scan every 60s')
+  logger.info('Scheduler initialized - backup at ~3AM, cleanup at ~4AM, heartbeat every 5m, webhook retry every 60s, claude scan every 60s, conductor sync every 30s')
 }
 
 /** Calculate ms until next occurrence of a given hour (UTC) */
@@ -300,8 +315,9 @@ async function tick() {
       : id === 'auto_cleanup' ? 'general.auto_cleanup'
       : id === 'webhook_retry' ? 'webhooks.retry_enabled'
       : id === 'claude_session_scan' ? 'general.claude_session_scan'
+      : id === 'conductor_sync' ? 'general.conductor_sync'
       : 'general.agent_heartbeat'
-    const defaultEnabled = id === 'agent_heartbeat' || id === 'webhook_retry' || id === 'claude_session_scan'
+    const defaultEnabled = id === 'agent_heartbeat' || id === 'webhook_retry' || id === 'claude_session_scan' || id === 'conductor_sync'
     if (!isSettingEnabled(settingKey, defaultEnabled)) continue
 
     task.running = true
@@ -310,6 +326,7 @@ async function tick() {
         : id === 'agent_heartbeat' ? await runHeartbeatCheck()
         : id === 'webhook_retry' ? await processWebhookRetries()
         : id === 'claude_session_scan' ? await syncClaudeSessions()
+        : id === 'conductor_sync' ? await syncConductorData()
         : await runCleanup()
       task.lastResult = { ...result, timestamp: now }
     } catch (err: any) {
@@ -339,8 +356,9 @@ export function getSchedulerStatus() {
       : id === 'auto_cleanup' ? 'general.auto_cleanup'
       : id === 'webhook_retry' ? 'webhooks.retry_enabled'
       : id === 'claude_session_scan' ? 'general.claude_session_scan'
+      : id === 'conductor_sync' ? 'general.conductor_sync'
       : 'general.agent_heartbeat'
-    const defaultEnabled = id === 'agent_heartbeat' || id === 'webhook_retry' || id === 'claude_session_scan'
+    const defaultEnabled = id === 'agent_heartbeat' || id === 'webhook_retry' || id === 'claude_session_scan' || id === 'conductor_sync'
     result.push({
       id,
       name: task.name,
@@ -362,6 +380,7 @@ export async function triggerTask(taskId: string): Promise<{ ok: boolean; messag
   if (taskId === 'agent_heartbeat') return runHeartbeatCheck()
   if (taskId === 'webhook_retry') return processWebhookRetries()
   if (taskId === 'claude_session_scan') return syncClaudeSessions()
+  if (taskId === 'conductor_sync') return syncConductorData()
   return { ok: false, message: `Unknown task: ${taskId}` }
 }
 

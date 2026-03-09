@@ -219,26 +219,99 @@ export function AgentSquadPanel() {
               >
                 {/* Agent Header */}
                 <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <h3 className="font-semibold text-white text-lg">{agent.name}</h3>
-                    <p className="text-gray-400 text-sm">{agent.role}</p>
+                  <div className="min-w-0 flex-1 mr-2">
+                    <h3 className="font-semibold text-white text-sm leading-tight truncate" title={agent.name}>
+                      {agent.config?.company_name || agent.name}
+                    </h3>
+                    <p className="text-gray-400 text-xs truncate">{agent.role}</p>
                   </div>
-                  
-                  <div className="flex items-center gap-2">
-                    <div className={`w-3 h-3 rounded-full ${statusColors[agent.status]} animate-pulse`}></div>
+
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <div className={`w-2.5 h-2.5 rounded-full ${statusColors[agent.status]} ${agent.status === 'busy' ? 'animate-pulse' : ''}`}></div>
                     <span className="text-xs text-gray-400">{agent.status}</span>
                   </div>
                 </div>
 
-                {/* Session Info */}
-                {agent.session_key && (
-                  <div className="text-xs text-gray-400 mb-2">
-                    <span className="font-medium">Session:</span> {agent.session_key}
+                {/* Conductor metadata badges */}
+                {agent.config?.conductor_task_id && (
+                  <div className="flex flex-wrap gap-1 mb-2">
+                    {agent.config.conductor_status && (
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                        agent.config.conductor_status === 'running' ? 'bg-blue-500/20 text-blue-400' :
+                        agent.config.conductor_status === 'pr_open' || agent.config.conductor_status === 'reviewing' ? 'bg-orange-500/20 text-orange-400' :
+                        agent.config.conductor_status === 'merged' ? 'bg-green-500/20 text-green-400' :
+                        agent.config.conductor_status === 'failed' ? 'bg-red-500/20 text-red-400' :
+                        'bg-zinc-500/20 text-zinc-400'
+                      }`}>
+                        {agent.config.conductor_status}
+                      </span>
+                    )}
+                    {agent.config.model_tier && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-400 font-medium">
+                        {agent.config.model_tier === 1 ? 'Opus' : agent.config.model_tier === 2 ? 'Sonnet' : 'Haiku'}
+                      </span>
+                    )}
+                    {agent.config.ci_status && (
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                        agent.config.ci_status === 'passing' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+                      }`}>
+                        CI {agent.config.ci_status}
+                      </span>
+                    )}
+                    {agent.config.pr_url && (
+                      <a
+                        href={agent.config.pr_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 font-medium hover:bg-blue-500/30"
+                      >
+                        PR #{agent.config.pr_number}
+                      </a>
+                    )}
+                    {agent.config.tmux_alive && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/20 text-green-400 font-medium flex items-center gap-0.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                        live
+                      </span>
+                    )}
+                    {agent.config.retries > 0 && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 font-medium">
+                        {agent.config.retries} retries
+                      </span>
+                    )}
                   </div>
                 )}
 
-                {/* Task Stats */}
-                {agent.taskStats && (
+                {/* Repo link for Conductor agents */}
+                {agent.config?.repo_slug && (
+                  <div className="text-xs text-gray-400 mb-2">
+                    <a
+                      href={`https://github.com/${agent.config.repo_slug}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="hover:text-blue-400 transition-colors"
+                    >
+                      {agent.config.repo_slug}
+                    </a>
+                  </div>
+                )}
+
+                {/* Runtime for Conductor agents */}
+                {agent.config?.runtime_minutes != null && agent.config.runtime_minutes > 0 && (
+                  <div className="text-xs text-gray-400 mb-2">
+                    <span className="font-medium">Runtime:</span>{' '}
+                    {agent.config.runtime_minutes >= 1440
+                      ? `${Math.floor(agent.config.runtime_minutes / 1440)}d ${Math.floor((agent.config.runtime_minutes % 1440) / 60)}h`
+                      : agent.config.runtime_minutes >= 60
+                        ? `${Math.floor(agent.config.runtime_minutes / 60)}h ${agent.config.runtime_minutes % 60}m`
+                        : `${agent.config.runtime_minutes}m`}
+                  </div>
+                )}
+
+                {/* Task Stats (for non-Conductor agents) */}
+                {!agent.config?.conductor_task_id && agent.taskStats && (
                   <div className="grid grid-cols-2 gap-2 mb-3">
                     <div className="bg-gray-700/50 rounded p-2 text-center">
                       <div className="text-lg font-semibold text-white">{agent.taskStats.total}</div>
@@ -262,6 +335,22 @@ export function AgentSquadPanel() {
                     </div>
                   )}
                 </div>
+
+                {/* Tmux attach command for Conductor agents */}
+                {agent.config?.conductor_task_id && agent.session_key && (
+                  <div className="mb-3">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        navigator.clipboard.writeText(`tmux attach -t ${agent.session_key}`)
+                      }}
+                      className="w-full text-left text-[10px] font-mono bg-gray-700/50 rounded px-2 py-1.5 text-gray-400 hover:text-white hover:bg-gray-700 transition-colors truncate"
+                      title={`tmux attach -t ${agent.session_key}`}
+                    >
+                      $ tmux attach -t {agent.session_key}
+                    </button>
+                  </div>
+                )}
 
                 {/* Quick Actions */}
                 <div className="flex gap-1">
@@ -400,6 +489,100 @@ function AgentDetailModal({
 
           {/* Agent Details */}
           <div className="space-y-4">
+            {/* Conductor details section */}
+            {agent.config?.conductor_task_id && (
+              <div className="bg-gray-700/30 rounded-lg p-4 space-y-3">
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-400">Conductor Agent</h4>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <span className="text-gray-400">Company:</span>
+                    <span className="text-white ml-2">{agent.config.company_name}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-400">Status:</span>
+                    <span className="text-white ml-2">{agent.config.conductor_status}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-400">Model:</span>
+                    <span className="text-white ml-2">
+                      {agent.config.model_tier === 1 ? 'Opus' : agent.config.model_tier === 2 ? 'Sonnet' : 'Haiku'} (T{agent.config.model_tier})
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-400">Runtime:</span>
+                    <span className="text-white ml-2">
+                      {agent.config.runtime_minutes >= 1440
+                        ? `${Math.floor(agent.config.runtime_minutes / 1440)}d ${Math.floor((agent.config.runtime_minutes % 1440) / 60)}h`
+                        : agent.config.runtime_minutes >= 60
+                          ? `${Math.floor(agent.config.runtime_minutes / 60)}h ${agent.config.runtime_minutes % 60}m`
+                          : `${agent.config.runtime_minutes || 0}m`}
+                    </span>
+                  </div>
+                  {agent.config.repo_slug && (
+                    <div className="col-span-2">
+                      <span className="text-gray-400">Repo:</span>
+                      <a
+                        href={`https://github.com/${agent.config.repo_slug}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-400 hover:text-blue-300 ml-2"
+                      >
+                        {agent.config.repo_slug}
+                      </a>
+                    </div>
+                  )}
+                  {agent.config.branch && (
+                    <div className="col-span-2">
+                      <span className="text-gray-400">Branch:</span>
+                      <span className="text-white ml-2 font-mono text-xs">{agent.config.branch}</span>
+                    </div>
+                  )}
+                  {agent.config.pr_url && (
+                    <div>
+                      <span className="text-gray-400">PR:</span>
+                      <a
+                        href={agent.config.pr_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-400 hover:text-blue-300 ml-2"
+                      >
+                        #{agent.config.pr_number}
+                      </a>
+                    </div>
+                  )}
+                  {agent.config.ci_status && (
+                    <div>
+                      <span className="text-gray-400">CI:</span>
+                      <span className={`ml-2 ${agent.config.ci_status === 'passing' ? 'text-green-400' : 'text-red-400'}`}>
+                        {agent.config.ci_status}
+                      </span>
+                    </div>
+                  )}
+                  {agent.config.worktree && (
+                    <div className="col-span-2">
+                      <span className="text-gray-400">Worktree:</span>
+                      <span className="text-white ml-2 font-mono text-xs">{agent.config.worktree}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Tmux attach command */}
+                {agent.session_key && (
+                  <div className="mt-2">
+                    <label className="block text-xs text-gray-400 mb-1">Attach to session:</label>
+                    <button
+                      onClick={() => navigator.clipboard.writeText(`tmux attach -t ${agent.session_key}`)}
+                      className="w-full text-left font-mono text-xs bg-gray-800 rounded px-3 py-2 text-gray-300 hover:text-white hover:bg-gray-700 transition-colors"
+                    >
+                      $ tmux attach -t {agent.session_key}
+                      <span className="float-right text-gray-500">click to copy</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Standard agent fields */}
             <div>
               <label className="block text-sm font-medium text-gray-400 mb-1">Role</label>
               {editing ? (
@@ -414,34 +597,38 @@ function AgentDetailModal({
               )}
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-400 mb-1">Session Key</label>
-              {editing ? (
-                <input
-                  type="text"
-                  value={formData.session_key}
-                  onChange={(e) => setFormData(prev => ({ ...prev, session_key: e.target.value }))}
-                  className="w-full bg-gray-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              ) : (
-                <p className="text-white font-mono">{agent.session_key || 'Not set'}</p>
-              )}
-            </div>
+            {!agent.config?.conductor_task_id && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">Session Key</label>
+                  {editing ? (
+                    <input
+                      type="text"
+                      value={formData.session_key}
+                      onChange={(e) => setFormData(prev => ({ ...prev, session_key: e.target.value }))}
+                      className="w-full bg-gray-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  ) : (
+                    <p className="text-white font-mono">{agent.session_key || 'Not set'}</p>
+                  )}
+                </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-400 mb-1">SOUL Content</label>
-              {editing ? (
-                <textarea
-                  value={formData.soul_content}
-                  onChange={(e) => setFormData(prev => ({ ...prev, soul_content: e.target.value }))}
-                  rows={4}
-                  className="w-full bg-gray-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Agent personality and instructions..."
-                />
-              ) : (
-                <p className="text-white whitespace-pre-wrap">{agent.soul_content || 'Not set'}</p>
-              )}
-            </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">SOUL Content</label>
+                  {editing ? (
+                    <textarea
+                      value={formData.soul_content}
+                      onChange={(e) => setFormData(prev => ({ ...prev, soul_content: e.target.value }))}
+                      rows={4}
+                      className="w-full bg-gray-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Agent personality and instructions..."
+                    />
+                  ) : (
+                    <p className="text-white whitespace-pre-wrap">{agent.soul_content || 'Not set'}</p>
+                  )}
+                </div>
+              </>
+            )}
 
             {/* Task Statistics */}
             {agent.taskStats && (
