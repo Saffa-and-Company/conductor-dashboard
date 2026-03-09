@@ -42,39 +42,40 @@
   }
 
   .dark {
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 95%;
-    --card: 240 10% 5.5%;
-    --card-foreground: 0 0% 95%;
-    --popover: 240 10% 5.5%;
-    --popover-foreground: 0 0% 95%;
-    --primary: 210 100% 52%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 240 5% 12%;
-    --secondary-foreground: 0 0% 95%;
-    --muted: 240 5% 15%;
-    --muted-foreground: 240 5% 55%;
-    --accent: 240 5% 15%;
-    --accent-foreground: 0 0% 95%;
+    /* Cotton Tree Ventures palette — teal-black foundations */
+    --background: 200 30% 3%;
+    --foreground: 150 5% 93%;
+    --card: 200 22% 5.5%;
+    --card-foreground: 150 5% 93%;
+    --popover: 200 22% 5.5%;
+    --popover-foreground: 150 5% 93%;
+    --primary: 192 100% 50%;
+    --primary-foreground: 200 30% 3%;
+    --secondary: 200 14% 11%;
+    --secondary-foreground: 150 5% 93%;
+    --muted: 200 12% 14%;
+    --muted-foreground: 195 8% 50%;
+    --accent: 200 12% 14%;
+    --accent-foreground: 150 5% 93%;
     --destructive: 0 63% 31%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 4% 16%;
-    --input: 240 4% 16%;
-    --ring: 210 100% 52%;
+    --border: 200 12% 15%;
+    --input: 200 12% 15%;
+    --ring: 192 100% 50%;
 
     /* Dark mode status */
     --success: 142 71% 45%;
     --success-foreground: 0 0% 98%;
     --warning: 38 92% 50%;
     --warning-foreground: 0 0% 9%;
-    --info: 217 91% 60%;
-    --info-foreground: 0 0% 98%;
+    --info: 192 100% 50%;
+    --info-foreground: 200 30% 3%;
 
-    /* Dark surface hierarchy */
-    --surface-0: 240 10% 3.9%;
-    --surface-1: 240 8% 6%;
-    --surface-2: 240 6% 9%;
-    --surface-3: 240 5% 13%;
+    /* Dark surface hierarchy — deep teal-blacks */
+    --surface-0: 200 30% 3%;
+    --surface-1: 200 22% 6%;
+    --surface-2: 200 16% 9%;
+    --surface-3: 200 12% 13%;
   }
 }
 
@@ -110,13 +111,15 @@
 }
 
 @layer utilities {
-  /* Glass morphism effects */
+  /* Glass morphism effects — CTV-style translucent panels */
   .glass {
-    @apply bg-card/80 backdrop-blur-xl border border-border/50;
+    @apply backdrop-blur-xl border border-white/[0.08];
+    background: linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%);
   }
 
   .glass-strong {
-    @apply bg-card/90 backdrop-blur-2xl border border-border/60;
+    @apply backdrop-blur-2xl border border-white/[0.12];
+    background: linear-gradient(135deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.03) 100%);
   }
 
   /* Surface levels */
@@ -150,9 +153,9 @@
     @apply bg-muted text-muted-foreground border border-border;
   }
 
-  /* Glow effects for active states */
+  /* Glow effects — cotton-blue accent glow */
   .glow-primary {
-    box-shadow: 0 0 20px hsl(var(--primary) / 0.15);
+    box-shadow: 0 0 20px rgba(0, 205, 255, 0.2), 0 0 40px rgba(0, 205, 255, 0.05);
   }
   .glow-success {
     box-shadow: 0 0 20px hsl(var(--success) / 0.15);

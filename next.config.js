@@ -1,7 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
-  turbopack: {},
+  // Scope Turbopack to this project dir so it doesn't scan sibling repos
+  // (fixes "Symlink points out of the filesystem root" panic from DataTrei/venv)
+  turbopack: {
+    root: __dirname,
+  },
   // Transpile ESM-only packages so they resolve correctly in all environments
   transpilePackages: ['react-markdown', 'remark-gfm'],
   

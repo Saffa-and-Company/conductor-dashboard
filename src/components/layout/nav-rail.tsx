@@ -101,11 +101,11 @@ export function NavRail() {
       >
         {/* Header: Logo + toggle */}
         <div className={`flex items-center shrink-0 ${sidebarExpanded ? 'px-3 py-3 gap-2.5' : 'flex-col py-3 gap-2'}`}>
-          <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center shrink-0">
-            <span className="text-primary-foreground font-bold text-xs">MC</span>
+          <div className="w-9 h-9 rounded-lg bg-[#071520] flex items-center justify-center shrink-0 overflow-hidden">
+            <img src="/ctv-mark.png" alt="Cotton Tree" className="w-7 h-7 object-contain" />
           </div>
           {sidebarExpanded && (
-            <span className="text-sm font-semibold text-foreground truncate flex-1">Mission Control</span>
+            <span className="text-sm font-semibold text-foreground truncate flex-1">Conductor</span>
           )}
           <button
             onClick={toggleSidebar}
