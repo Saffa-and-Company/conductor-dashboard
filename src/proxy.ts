@@ -117,9 +117,9 @@ export function proxy(request: NextRequest) {
     const configuredApiKey = (process.env.API_KEY || '').trim()
     const apiKey = extractApiKeyFromRequest(request)
     const hasValidApiKey = Boolean(configuredApiKey && apiKey && safeCompare(apiKey, configuredApiKey))
-    // Dedicated agent API keys are validated in route auth against DB.
-    // Proxy only permits them to pass through to avoid coupling middleware to DB access.
-    const hasAgentApiKeyCandidate = apiKey.startsWith('mca_')
+    // Dedicated agent API keys are validated per-route against DB.
+    // Proxy enforces format (mca_ + 32+ hex chars) before allowing pass-through.
+    const hasAgentApiKeyCandidate = /^mca_[a-f0-9]{32,}$/.test(apiKey)
     if (sessionToken || hasValidApiKey || hasAgentApiKeyCandidate) {
       return applySecurityHeaders(NextResponse.next())
     }

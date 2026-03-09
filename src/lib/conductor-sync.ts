@@ -446,13 +446,13 @@ export async function syncConductorData(): Promise<{ ok: boolean; message: strin
   try {
     // Quick check: skip if files haven't changed
     const tasksPath = getActiveTasksPath()
+    let currentHash = ''
     if (existsSync(tasksPath)) {
       const stat = statSync(tasksPath)
-      const currentHash = `${stat.mtimeMs}-${stat.size}`
+      currentHash = `${stat.mtimeMs}-${stat.size}`
       if (currentHash === lastSyncHash) {
         return { ok: true, message: 'No changes detected' }
       }
-      lastSyncHash = currentHash
     }
 
     const companies = readCompaniesFile()
@@ -463,6 +463,10 @@ export async function syncConductorData(): Promise<{ ok: boolean; message: strin
 
     // Create/update agents from Conductor tmux sessions
     syncConductorAgents(tasks, companies)
+
+    // Only update hash AFTER successful sync — if parse/sync fails above,
+    // the next tick will retry because lastSyncHash remains unchanged.
+    if (currentHash) lastSyncHash = currentHash
 
     const message = [
       `Synced ${tasks.length} tasks`,

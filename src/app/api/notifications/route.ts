@@ -28,6 +28,11 @@ export async function GET(request: NextRequest) {
     if (!recipient) {
       return NextResponse.json({ error: 'Recipient is required' }, { status: 400 });
     }
+
+    // Enforce that non-admin users can only read their own notifications
+    if (recipient !== auth.user.username && auth.user.role !== 'admin') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
     
     // Build dynamic query
     let query = 'SELECT * FROM notifications WHERE recipient = ? AND workspace_id = ?';
