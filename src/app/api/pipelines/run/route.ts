@@ -116,7 +116,23 @@ export async function POST(request: NextRequest) {
   }
 }
 
-/** Spawn a single pipeline step using `openclaw agent` */
+/** Resolve the agent id for pipeline spawns (same pattern as cron jobs). */
+function getPipelineAgentId(): string {
+  return String(
+    process.env.MC_PIPELINE_AGENT_ID ||
+    process.env.MC_COORDINATOR_AGENT ||
+    process.env.MC_CRON_AGENT_ID ||
+    'main'
+  ).trim() || 'main'
+}
+
+/** Spawn a single pipeline step using `openclaw agent`.
+ *
+ * The agent CLI blocks until the full turn completes which can take minutes.
+ * We spawn the process *detached* so the API responds immediately while the
+ * agent continues running in the background. The user manually advances steps
+ * via the UI once they see the work is done.
+ */
 async function spawnStep(
   db: ReturnType<typeof getDatabase>,
   pipelineName: string,
@@ -125,27 +141,42 @@ async function spawnStep(
   stepIdx: number,
   runId: number,
   workspaceId: number
-): Promise<{ success: boolean; stdout?: string; error?: string }> {
+): Promise<{ success: boolean; spawn_id?: string; error?: string }> {
   try {
-    const { runOpenClaw } = await import('@/lib/command')
+    const { spawn } = await import('node:child_process')
+    const { config } = await import('@/lib/config')
+
+    const agentId = getPipelineAgentId()
+    const spawnId = `pipeline-${runId}-step-${stepIdx}-${Date.now()}`
     const args = [
       'agent',
+      '--agent', agentId,
       '--message', `[Pipeline: ${pipelineName} | Step ${stepIdx + 1}] ${template.task_prompt}`,
       '--timeout', String(template.timeout_seconds),
       '--json',
     ]
-    const { stdout } = await runOpenClaw(args, { timeoutMs: 15000 })
 
-    const spawnId = `pipeline-${runId}-step-${stepIdx}-${Date.now()}`
+    // Spawn detached so the API handler returns immediately.
+    // The agent turn runs in the background on the gateway.
+    const child = spawn(config.openclawBin, args, {
+      cwd: config.openclawStateDir || process.cwd(),
+      detached: true,
+      stdio: 'ignore',
+    })
+    child.unref()
+
     steps[stepIdx].spawn_id = spawnId
+    steps[stepIdx].started_at = Math.floor(Date.now() / 1000)
     db.prepare('UPDATE pipeline_runs SET steps_snapshot = ? WHERE id = ? AND workspace_id = ?').run(JSON.stringify(steps), runId, workspaceId)
 
-    return { success: true, stdout: stdout.trim() }
+    logger.info({ spawnId, agentId, stepIdx, pipelineName }, 'Pipeline step spawned')
+    return { success: true, spawn_id: spawnId }
   } catch (err: any) {
     // Spawn failed - record error but keep pipeline running for manual advance
     steps[stepIdx].error = err.message
     db.prepare('UPDATE pipeline_runs SET steps_snapshot = ? WHERE id = ? AND workspace_id = ?').run(JSON.stringify(steps), runId, workspaceId)
 
+    logger.error({ err, stepIdx, pipelineName }, 'Pipeline step spawn failed')
     return { success: false, error: err.message }
   }
 }
