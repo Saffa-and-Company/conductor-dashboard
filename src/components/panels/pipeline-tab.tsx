@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 
 interface WorkflowTemplate {
   id: number
@@ -33,6 +33,8 @@ interface RunStepState {
   started_at: number | null
   completed_at: number | null
   error: string | null
+  pid: number | null
+  log_path: string | null
 }
 
 interface PipelineRun {
@@ -42,10 +44,19 @@ interface PipelineRun {
   status: string
   current_step: number
   steps_snapshot: RunStepState[]
+  task_id?: number | null
+  auto_advance?: number
   started_at: number | null
   completed_at: number | null
   triggered_by: string
   created_at: number
+}
+
+interface TaskOption {
+  id: number
+  title: string
+  status: string
+  project_name?: string
 }
 
 export function PipelineTab() {
@@ -65,6 +76,18 @@ export function PipelineTab() {
   const [spawning, setSpawning] = useState<number | null>(null)
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
 
+  // Run dialog state
+  const [runDialog, setRunDialog] = useState<{ pipelineId: number; pipelineName: string } | null>(null)
+  const [runContext, setRunContext] = useState('')
+  const [runTaskId, setRunTaskId] = useState<number | null>(null)
+  const [runAutoAdvance, setRunAutoAdvance] = useState(true)
+  const [availableTasks, setAvailableTasks] = useState<TaskOption[]>([])
+
+  // Log viewer state
+  const [viewingLog, setViewingLog] = useState<{ runId: number; step: number } | null>(null)
+  const [logContent, setLogContent] = useState('')
+  const [logLoading, setLogLoading] = useState(false)
+
   const fetchData = useCallback(async () => {
     const [tRes, pRes, rRes] = await Promise.all([
       fetch('/api/workflows').then(r => r.json()).catch(() => ({ templates: [] })),
@@ -78,12 +101,54 @@ export function PipelineTab() {
 
   useEffect(() => { fetchData() }, [fetchData])
 
+  // Auto-poll every 5s when there are active runs
+  const activeRuns = runs.filter(r => r.status === 'running')
+  useEffect(() => {
+    if (activeRuns.length === 0) return
+    const timer = setInterval(fetchData, 5000)
+    return () => clearInterval(timer)
+  }, [activeRuns.length, fetchData])
+
   // Clear result after 3s
   useEffect(() => {
     if (!result) return
     const timer = setTimeout(() => setResult(null), 3000)
     return () => clearTimeout(timer)
   }, [result])
+
+  // Fetch tasks when run dialog opens
+  useEffect(() => {
+    if (!runDialog) return
+    fetch('/api/tasks?limit=50')
+      .then(r => r.json())
+      .then(data => setAvailableTasks(data.tasks || []))
+      .catch(() => setAvailableTasks([]))
+  }, [runDialog])
+
+  // Auto-poll log content when viewing a running step
+  useEffect(() => {
+    if (!viewingLog) return
+    let cancelled = false
+    const fetchLog = () => {
+      setLogLoading(true)
+      fetch(`/api/pipelines/run/logs?run_id=${viewingLog.runId}&step=${viewingLog.step}&tail=500`)
+        .then(r => r.json())
+        .then(data => {
+          if (!cancelled) {
+            setLogContent(data.log || '(no output yet)')
+            setLogLoading(false)
+          }
+        })
+        .catch(() => { if (!cancelled) { setLogContent('(failed to load log)'); setLogLoading(false) } })
+    }
+    fetchLog()
+    // Find the step to check if still running
+    const run = runs.find(r => r.id === viewingLog.runId)
+    const step = run?.steps_snapshot[viewingLog.step]
+    const isRunning = step?.status === 'running'
+    const timer = isRunning ? setInterval(fetchLog, 5000) : undefined
+    return () => { cancelled = true; if (timer) clearInterval(timer) }
+  }, [viewingLog, runs])
 
   const closeForm = () => {
     setFormMode('hidden')
@@ -154,17 +219,33 @@ export function PipelineTab() {
     fetchData()
   }
 
-  const runPipeline = async (id: number) => {
-    setSpawning(id)
+  // Open run dialog instead of immediately running
+  const openRunDialog = (p: Pipeline) => {
+    setRunDialog({ pipelineId: p.id, pipelineName: p.name })
+    setRunContext('')
+    setRunTaskId(null)
+    setRunAutoAdvance(true)
+  }
+
+  const submitRunDialog = async () => {
+    if (!runDialog) return
+    setSpawning(runDialog.pipelineId)
+    setRunDialog(null)
     try {
       const res = await fetch('/api/pipelines/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'start', pipeline_id: id }),
+        body: JSON.stringify({
+          action: 'start',
+          pipeline_id: runDialog.pipelineId,
+          context: runContext || undefined,
+          task_id: runTaskId || undefined,
+          auto_advance: runAutoAdvance,
+        }),
       })
       const data = await res.json()
       if (res.ok) {
-        setResult({ ok: true, text: `Pipeline started (run #${data.run?.id})` })
+        setResult({ ok: true, text: `Pipeline started (run #${data.run?.id})${runAutoAdvance ? ' — auto-advancing' : ''}` })
         fetchData()
       } else {
         setResult({ ok: false, text: data.error || 'Failed to start' })
@@ -198,9 +279,6 @@ export function PipelineTab() {
     } catch { /* ignore */ }
   }
 
-  // Active runs (running pipelines shown at top)
-  const activeRuns = runs.filter(r => r.status === 'running')
-
   return (
     <div className="space-y-3">
       {/* Result message */}
@@ -214,7 +292,7 @@ export function PipelineTab() {
       {activeRuns.length > 0 && (
         <div className="space-y-2">
           {activeRuns.map(run => (
-            <ActiveRunCard key={run.id} run={run} onAdvance={advanceRun} onCancel={cancelRun} />
+            <ActiveRunCard key={run.id} run={run} onAdvance={advanceRun} onCancel={cancelRun} onViewLog={(runId, step) => setViewingLog({ runId, step })} />
           ))}
         </div>
       )}
@@ -342,7 +420,7 @@ export function PipelineTab() {
                 </button>
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-smooth shrink-0">
                   <button
-                    onClick={() => runPipeline(p.id)}
+                    onClick={() => openRunDialog(p)}
                     disabled={spawning === p.id}
                     className="h-7 px-2 rounded-md bg-primary text-primary-foreground text-xs font-medium disabled:opacity-50"
                   >
@@ -364,9 +442,7 @@ export function PipelineTab() {
               {/* Expanded: pipeline visualization + recent runs */}
               {expandedId === p.id && (
                 <div className="px-3 pb-3 border-t border-border/50 mt-1 pt-2 space-y-3">
-                  {/* Full pipeline visualization */}
                   <PipelineViz steps={p.steps} />
-
                   {p.description && <p className="text-xs text-muted-foreground">{p.description}</p>}
 
                   {/* Recent runs for this pipeline */}
@@ -377,10 +453,14 @@ export function PipelineTab() {
                     {runs.filter(r => r.pipeline_id === p.id).slice(0, 3).map(run => (
                       <div key={run.id} className="mt-1 p-2 rounded bg-secondary/50 text-xs">
                         <div className="flex items-center justify-between mb-1">
-                          <span className="font-medium">Run #{run.id}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">Run #{run.id}</span>
+                            {run.auto_advance === 1 && <span className="text-2xs text-blue-400">auto</span>}
+                            {run.task_id && <span className="text-2xs text-purple-400">task #{run.task_id}</span>}
+                          </div>
                           <RunStatusBadge status={run.status} />
                         </div>
-                        <RunStepsViz steps={run.steps_snapshot} />
+                        <RunStepsViz steps={run.steps_snapshot} onViewLog={(step) => setViewingLog({ runId: run.id, step })} />
                         {run.status === 'running' && (
                           <div className="flex gap-1 mt-1.5">
                             <button onClick={() => advanceRun(run.id, true)} className="h-6 px-2 rounded bg-green-500/20 text-green-400 text-2xs hover:bg-green-500/30">
@@ -401,6 +481,91 @@ export function PipelineTab() {
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Run Dialog Modal */}
+      {runDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setRunDialog(null)}>
+          <div className="bg-card border border-border rounded-lg p-4 w-full max-w-lg m-4 space-y-3" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Run: {runDialog.pipelineName}</span>
+              <button onClick={() => setRunDialog(null)} className="text-muted-foreground hover:text-foreground">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4"><path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" /></svg>
+              </button>
+            </div>
+
+            {/* Context textarea */}
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Context (task details, repo, instructions)</label>
+              <textarea
+                value={runContext}
+                onChange={e => setRunContext(e.target.value)}
+                placeholder="Client: ...\nRepo: ...\nRequest: ..."
+                rows={6}
+                className="w-full px-2 py-1.5 rounded-md bg-secondary border border-border text-sm text-foreground font-mono resize-y"
+              />
+            </div>
+
+            {/* Task dropdown */}
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Link to task (optional)</label>
+              <select
+                value={runTaskId || ''}
+                onChange={e => setRunTaskId(e.target.value ? parseInt(e.target.value) : null)}
+                className="w-full h-8 px-2 rounded-md bg-secondary border border-border text-sm text-foreground"
+              >
+                <option value="">No linked task</option>
+                {availableTasks.map(t => (
+                  <option key={t.id} value={t.id}>#{t.id} — {t.title} [{t.status}]</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Auto-advance toggle */}
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={runAutoAdvance}
+                onChange={e => setRunAutoAdvance(e.target.checked)}
+                className="rounded"
+              />
+              <span className="text-xs text-foreground">Auto-advance steps on completion</span>
+              <span className="text-2xs text-muted-foreground">(recommended)</span>
+            </label>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button onClick={() => setRunDialog(null)} className="h-8 px-3 rounded-md bg-secondary text-foreground text-xs">
+                Cancel
+              </button>
+              <button
+                onClick={submitRunDialog}
+                className="h-8 px-4 rounded-md bg-primary text-primary-foreground text-xs font-medium"
+              >
+                Start Pipeline
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Log Viewer Modal */}
+      {viewingLog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setViewingLog(null)}>
+          <div className="bg-card border border-border rounded-lg p-4 w-full max-w-2xl m-4 max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium">
+                Run #{viewingLog.runId} — Step {viewingLog.step + 1} Logs
+                {logLoading && <span className="ml-2 text-2xs text-muted-foreground animate-pulse">refreshing...</span>}
+              </span>
+              <button onClick={() => setViewingLog(null)} className="text-muted-foreground hover:text-foreground">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4"><path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" /></svg>
+              </button>
+            </div>
+            <pre className="flex-1 overflow-auto text-xs font-mono text-foreground bg-secondary/50 rounded-md p-3 whitespace-pre-wrap break-all">
+              {logContent || '(loading...)'}
+            </pre>
+          </div>
         </div>
       )}
     </div>
@@ -432,8 +597,18 @@ function PipelineViz({ steps }: { steps: PipelineStep[] }) {
   )
 }
 
+function formatDuration(startTs: number | null, endTs: number | null): string {
+  if (!startTs) return ''
+  const end = endTs || Math.floor(Date.now() / 1000)
+  const secs = end - startTs
+  if (secs < 60) return `${secs}s`
+  const mins = Math.floor(secs / 60)
+  const remainSecs = secs % 60
+  return `${mins}m ${remainSecs}s`
+}
+
 /** Run steps visualization with colored status dots */
-function RunStepsViz({ steps }: { steps: RunStepState[] }) {
+function RunStepsViz({ steps, onViewLog }: { steps: RunStepState[]; onViewLog?: (step: number) => void }) {
   return (
     <div className="flex items-center gap-1 overflow-x-auto">
       {steps.map((s, i) => (
@@ -445,11 +620,20 @@ function RunStepsViz({ steps }: { steps: RunStepState[] }) {
               s.status === 'failed' ? 'bg-red-500' :
               s.status === 'skipped' ? 'bg-gray-500' : 'bg-gray-600'
             }`} />
-            <span className={`text-2xs whitespace-nowrap ${
-              s.status === 'running' ? 'text-foreground font-medium' : 'text-muted-foreground'
-            }`}>
+            <button
+              onClick={() => onViewLog?.(i)}
+              className={`text-2xs whitespace-nowrap hover:underline ${
+                s.status === 'running' ? 'text-foreground font-medium' : 'text-muted-foreground'
+              }`}
+              title={s.log_path ? 'View logs' : 'No logs yet'}
+            >
               {s.template_name}
-            </span>
+            </button>
+            {(s.started_at && (s.status === 'running' || s.status === 'completed' || s.status === 'failed')) && (
+              <span className="text-2xs text-muted-foreground/60">
+                {formatDuration(s.started_at, s.completed_at)}
+              </span>
+            )}
           </div>
           {i < steps.length - 1 && (
             <svg viewBox="0 0 8 8" className="w-2 h-2 text-muted-foreground/40 shrink-0">
@@ -466,6 +650,7 @@ function RunStatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
     running: 'bg-amber-500/20 text-amber-400',
     completed: 'bg-green-500/20 text-green-400',
+    completed_with_errors: 'bg-amber-500/20 text-amber-400',
     failed: 'bg-red-500/20 text-red-400',
     cancelled: 'bg-gray-500/20 text-gray-400',
     pending: 'bg-blue-500/20 text-blue-400',
@@ -478,11 +663,13 @@ function RunStatusBadge({ status }: { status: string }) {
 }
 
 /** Active run card shown at top of pipeline tab */
-function ActiveRunCard({ run, onAdvance, onCancel }: {
+function ActiveRunCard({ run, onAdvance, onCancel, onViewLog }: {
   run: PipelineRun
   onAdvance: (id: number, success: boolean) => void
   onCancel: (id: number) => void
+  onViewLog: (runId: number, step: number) => void
 }) {
+  const currentStep = run.steps_snapshot[run.current_step]
   return (
     <div className="p-2.5 rounded-lg border border-amber-500/30 bg-amber-500/5">
       <div className="flex items-center justify-between mb-1.5">
@@ -491,13 +678,19 @@ function ActiveRunCard({ run, onAdvance, onCancel }: {
           <span className="text-xs font-medium text-foreground">
             {run.pipeline_name || `Pipeline #${run.pipeline_id}`} — Run #{run.id}
           </span>
+          {run.auto_advance === 1 && <span className="text-2xs px-1 py-0.5 rounded bg-blue-500/20 text-blue-400">auto</span>}
+          {run.task_id && <span className="text-2xs px-1 py-0.5 rounded bg-purple-500/20 text-purple-400">task #{run.task_id}</span>}
         </div>
         <span className="text-2xs text-muted-foreground">
           Step {run.current_step + 1}/{run.steps_snapshot.length}
+          {currentStep?.started_at && ` (${formatDuration(currentStep.started_at, null)})`}
         </span>
       </div>
-      <RunStepsViz steps={run.steps_snapshot} />
+      <RunStepsViz steps={run.steps_snapshot} onViewLog={(step) => onViewLog(run.id, step)} />
       <div className="flex gap-1 mt-2">
+        <button onClick={() => onViewLog(run.id, run.current_step)} className="h-6 px-2 rounded bg-blue-500/20 text-blue-400 text-2xs hover:bg-blue-500/30">
+          View Logs
+        </button>
         <button onClick={() => onAdvance(run.id, true)} className="h-6 px-2 rounded bg-green-500/20 text-green-400 text-2xs hover:bg-green-500/30">
           Step Done
         </button>

@@ -839,6 +839,32 @@ const migrations: Migration[] = [
         db.exec(`ALTER TABLE pipeline_runs ADD COLUMN context TEXT`)
       }
     }
+  },
+  {
+    id: '029_pipeline_auto_advance_and_task_linkage',
+    up: (db) => {
+      // Pipeline runs: task linkage + auto-advance flag
+      const prCols = db.prepare(`PRAGMA table_info(pipeline_runs)`).all() as Array<{ name: string }>
+      if (!prCols.some((c) => c.name === 'task_id')) {
+        db.exec(`ALTER TABLE pipeline_runs ADD COLUMN task_id INTEGER`)
+      }
+      if (!prCols.some((c) => c.name === 'auto_advance')) {
+        db.exec(`ALTER TABLE pipeline_runs ADD COLUMN auto_advance INTEGER NOT NULL DEFAULT 1`)
+      }
+
+      // Tasks: backlinks to pipeline runs + PR tracking
+      const taskCols = db.prepare(`PRAGMA table_info(tasks)`).all() as Array<{ name: string }>
+      if (!taskCols.some((c) => c.name === 'pipeline_run_id')) {
+        db.exec(`ALTER TABLE tasks ADD COLUMN pipeline_run_id INTEGER`)
+      }
+      if (!taskCols.some((c) => c.name === 'pr_url')) {
+        db.exec(`ALTER TABLE tasks ADD COLUMN pr_url TEXT`)
+      }
+
+      // Indexes
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_pipeline_runs_task_id ON pipeline_runs(task_id)`)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_pipeline_run_id ON tasks(pipeline_run_id)`)
+    }
   }
 ]
 
