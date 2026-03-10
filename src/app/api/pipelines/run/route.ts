@@ -201,7 +201,7 @@ async function spawnStep(
 
     // Auto-advance: listen for process exit
     child.on('exit', (code) => {
-      try { fs.closeSync(logFd) } catch { /* already closed */ }
+      try { if (logFd !== undefined) fs.closeSync(logFd) } catch { /* already closed */ }
       runningProcesses.delete(processKey)
 
       logger.info({ runId, stepIdx, code, pipelineName }, 'Pipeline step process exited')
@@ -212,7 +212,7 @@ async function spawnStep(
     })
 
     child.on('error', (err) => {
-      try { fs.closeSync(logFd) } catch { /* already closed */ }
+      try { if (logFd !== undefined) fs.closeSync(logFd) } catch { /* already closed */ }
       runningProcesses.delete(processKey)
       logger.error({ err, runId, stepIdx }, 'Pipeline step process error')
 
