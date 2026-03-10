@@ -74,6 +74,10 @@ interface ConductorCompaniesFile {
   companies: Record<string, ConductorCompany>
 }
 
+// ── Workspace ID (single-tenant; centralized for future multi-tenant) ──
+
+const CONDUCTOR_WORKSPACE_ID = 1
+
 // ── Status mapping ──────────────────────────────────────────────────
 
 const STATUS_MAP: Record<string, string> = {
@@ -157,10 +161,10 @@ function syncCompanies(companies: Record<string, ConductorCompany>): Map<string,
   const now = Math.floor(Date.now() / 1000)
   const companyToProjectId = new Map<string, number>()
 
-  const findProject = db.prepare('SELECT id FROM projects WHERE slug = ? AND workspace_id = 1')
+  const findProject = db.prepare(`SELECT id FROM projects WHERE slug = ? AND workspace_id = ${CONDUCTOR_WORKSPACE_ID}`)
   const insertProject = db.prepare(`
     INSERT INTO projects (workspace_id, name, slug, description, ticket_prefix, status, created_at, updated_at)
-    VALUES (1, ?, ?, ?, ?, 'active', ?, ?)
+    VALUES (${CONDUCTOR_WORKSPACE_ID}, ?, ?, ?, ?, 'active', ?, ?)
   `)
   const updateProject = db.prepare(`
     UPDATE projects SET name = ?, description = ?, updated_at = ? WHERE id = ?
@@ -217,7 +221,7 @@ function syncTasks(
   // Find tasks by conductor_id stored in metadata
   const findTask = db.prepare(`
     SELECT id, status, metadata FROM tasks
-    WHERE workspace_id = 1 AND json_extract(metadata, '$.conductor_id') = ?
+    WHERE workspace_id = ${CONDUCTOR_WORKSPACE_ID} AND json_extract(metadata, '$.conductor_id') = ?
   `)
 
   const insertTask = db.prepare(`
@@ -225,7 +229,7 @@ function syncTasks(
       workspace_id, title, description, status, priority,
       assigned_to, created_by, created_at, updated_at,
       tags, metadata, project_id
-    ) VALUES (1, ?, ?, ?, ?, ?, 'conductor', ?, ?, ?, ?, ?)
+    ) VALUES (${CONDUCTOR_WORKSPACE_ID}, ?, ?, ?, ?, ?, 'conductor', ?, ?, ?, ?, ?)
   `)
 
   const updateTask = db.prepare(`
@@ -348,14 +352,14 @@ function syncConductorAgents(
   const db = getDatabase()
   const now = Math.floor(Date.now() / 1000)
 
-  const findAgent = db.prepare('SELECT id, status, config FROM agents WHERE name = ? AND workspace_id = 1')
+  const findAgent = db.prepare(`SELECT id, status, config FROM agents WHERE name = ? AND workspace_id = ${CONDUCTOR_WORKSPACE_ID}`)
   const insertAgent = db.prepare(`
     INSERT INTO agents (workspace_id, name, role, session_key, status, last_seen, last_activity, created_at, updated_at, config)
-    VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (${CONDUCTOR_WORKSPACE_ID}, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
   const updateAgent = db.prepare(`
     UPDATE agents SET role = ?, status = ?, last_seen = ?, last_activity = ?, updated_at = ?, config = ?
-    WHERE name = ? AND workspace_id = 1
+    WHERE name = ? AND workspace_id = ${CONDUCTOR_WORKSPACE_ID}
   `)
 
   for (const task of conductorTasks) {
@@ -444,12 +448,17 @@ export async function syncConductorData(): Promise<{ ok: boolean; message: strin
   }
 
   try {
-    // Quick check: skip if files haven't changed
+    // Quick check: skip if neither file has changed
     const tasksPath = getActiveTasksPath()
+    const companiesPath = getCompaniesPath()
     let currentHash = ''
-    if (existsSync(tasksPath)) {
-      const stat = statSync(tasksPath)
-      currentHash = `${stat.mtimeMs}-${stat.size}`
+    const tasksStat = existsSync(tasksPath) ? statSync(tasksPath) : null
+    const companiesStat = existsSync(companiesPath) ? statSync(companiesPath) : null
+    if (tasksStat || companiesStat) {
+      currentHash = [
+        tasksStat ? `t:${tasksStat.mtimeMs}-${tasksStat.size}` : '',
+        companiesStat ? `c:${companiesStat.mtimeMs}-${companiesStat.size}` : '',
+      ].join('|')
       if (currentHash === lastSyncHash) {
         return { ok: true, message: 'No changes detected' }
       }
@@ -501,7 +510,7 @@ export async function syncCompletedTasks(): Promise<{ ok: boolean; message: stri
 
   const findTask = db.prepare(`
     SELECT id, status FROM tasks
-    WHERE workspace_id = 1 AND json_extract(metadata, '$.conductor_id') = ?
+    WHERE workspace_id = ${CONDUCTOR_WORKSPACE_ID} AND json_extract(metadata, '$.conductor_id') = ?
   `)
   const markDone = db.prepare(`
     UPDATE tasks SET status = 'done', outcome = ?, completed_at = ?, updated_at = ?

@@ -258,7 +258,7 @@ export function AgentSquadPanel() {
                         CI {agent.config.ci_status}
                       </span>
                     )}
-                    {agent.config.pr_url && (
+                    {agent.config.pr_url && /^https?:\/\//.test(agent.config.pr_url) && (
                       <a
                         href={agent.config.pr_url}
                         target="_blank"
@@ -537,7 +537,7 @@ function AgentDetailModal({
                       <span className="text-white ml-2 font-mono text-xs">{agent.config.branch}</span>
                     </div>
                   )}
-                  {agent.config.pr_url && (
+                  {agent.config.pr_url && /^https?:\/\//.test(agent.config.pr_url) && (
                     <div>
                       <span className="text-gray-400">PR:</span>
                       <a

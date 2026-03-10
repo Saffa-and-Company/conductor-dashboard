@@ -694,7 +694,7 @@ export function TaskBoardPanel() {
                         </span>
                       )}
                       {/* PR link */}
-                      {task.metadata.pr_url && (
+                      {task.metadata.pr_url && /^https?:\/\//.test(task.metadata.pr_url) && (
                         <a
                           href={task.metadata.pr_url}
                           target="_blank"
@@ -1136,7 +1136,7 @@ function TaskDetailModal({
                       <span className="text-foreground ml-2 font-mono text-xs">{task.metadata.branch}</span>
                     </div>
                   )}
-                  {task.metadata.pr_url && (
+                  {task.metadata.pr_url && /^https?:\/\//.test(task.metadata.pr_url) && (
                     <div>
                       <span className="text-muted-foreground">Pull Request:</span>
                       <a

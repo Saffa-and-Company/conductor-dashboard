@@ -211,7 +211,8 @@ async function runHeartbeatCheck(): Promise<{ ok: boolean; message: string }> {
 
 const DAILY_MS = 24 * 60 * 60 * 1000
 const FIVE_MINUTES_MS = 5 * 60 * 1000
-const TICK_MS = 60 * 1000 // Check every minute
+const ONE_MINUTE_MS = 60 * 1000
+const TICK_MS = 15 * 1000 // Check every 15s (allows 30s conductor sync to fire on time)
 
 /** Initialize the scheduler */
 export function initScheduler() {
@@ -262,16 +263,16 @@ export function initScheduler() {
 
   tasks.set('webhook_retry', {
     name: 'Webhook Retry',
-    intervalMs: TICK_MS, // Every 60s, matching scheduler tick resolution
+    intervalMs: ONE_MINUTE_MS, // Every 60s
     lastRun: null,
-    nextRun: now + TICK_MS,
+    nextRun: now + ONE_MINUTE_MS,
     enabled: true,
     running: false,
   })
 
   tasks.set('claude_session_scan', {
     name: 'Claude Session Scan',
-    intervalMs: TICK_MS, // Every 60s — lightweight file stat checks
+    intervalMs: ONE_MINUTE_MS, // Every 60s — lightweight file stat checks
     lastRun: null,
     nextRun: now + 5_000, // First scan 5s after startup
     enabled: true,
