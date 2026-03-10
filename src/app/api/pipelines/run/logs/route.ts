@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import fs from 'node:fs'
+import path from 'node:path'
 
 interface PipelineRun {
   id: number
@@ -18,7 +19,7 @@ interface RunStepState {
  * Returns log file content for a pipeline step.
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const { searchParams } = new URL(request.url)
@@ -29,6 +30,7 @@ export async function GET(request: NextRequest) {
   if (!runId) return NextResponse.json({ error: 'run_id required' }, { status: 400 })
 
   const db = getDatabase()
+  const { config } = await import('@/lib/config')
   const workspaceId = auth.user.workspace_id ?? 1
   const run = db.prepare('SELECT id, steps_snapshot FROM pipeline_runs WHERE id = ? AND workspace_id = ?')
     .get(runId, workspaceId) as PipelineRun | undefined
@@ -45,7 +47,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ log: '', status: steps[stepIdx].status, exists: false })
   }
 
-  const content = fs.readFileSync(logPath, 'utf-8')
+  // Sandbox: ensure logPath resolves under the expected pipeline-logs directory
+  const allowedDir = path.resolve(config.dataDir, 'pipeline-logs')
+  const resolvedLogPath = path.resolve(logPath)
+  if (!resolvedLogPath.startsWith(allowedDir + path.sep) && resolvedLogPath !== allowedDir) {
+    return NextResponse.json({ error: 'Access denied' }, { status: 403 })
+  }
+
+  const content = fs.readFileSync(resolvedLogPath, 'utf-8')
   const lines = content.split('\n')
   const truncated = lines.length > tail
   const output = truncated ? lines.slice(-tail).join('\n') : content

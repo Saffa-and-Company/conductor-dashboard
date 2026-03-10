@@ -164,6 +164,7 @@ async function spawnStep(
   context?: string | null,
   autoAdvance?: boolean
 ): Promise<{ success: boolean; spawn_id?: string; error?: string }> {
+  let logFd: number | undefined
   try {
     const { spawn } = await import('node:child_process')
     const { config } = await import('@/lib/config')
@@ -182,7 +183,7 @@ async function spawnStep(
     // Create log file for output capture
     const logsDir = getLogsDir()
     const logPath = path.join(logsDir, `run-${runId}-step-${stepIdx}.log`)
-    const logFd = fs.openSync(logPath, 'w')
+    logFd = fs.openSync(logPath, 'w')
 
     const child = spawn(config.openclawBin, args, {
       cwd: config.openclawStateDir || process.cwd(),
@@ -223,10 +224,29 @@ async function spawnStep(
     logger.info({ spawnId, agentId, stepIdx, pipelineName, logPath, autoAdvance }, 'Pipeline step spawned')
     return { success: true, spawn_id: spawnId }
   } catch (err: any) {
-    steps[stepIdx].error = err.message
+    // Close log FD if it was opened before spawn threw
+    if (typeof logFd === 'number') {
+      try { fs.closeSync(logFd) } catch { /* ignore */ }
+    }
+
+    const now = Math.floor(Date.now() / 1000)
+    steps[stepIdx].status = 'failed'
+    steps[stepIdx].completed_at = now
+    steps[stepIdx].error = `Spawn failed: ${err.message}`
     db.prepare('UPDATE pipeline_runs SET steps_snapshot = ? WHERE id = ? AND workspace_id = ?').run(JSON.stringify(steps), runId, workspaceId)
 
     logger.error({ err, stepIdx, pipelineName }, 'Pipeline step spawn failed')
+
+    // Apply on_failure policy so the run doesn't get stuck
+    if (autoAdvance !== false) {
+      const onFailure = steps[stepIdx].on_failure || 'stop'
+      if (onFailure === 'stop') {
+        for (let i = stepIdx + 1; i < steps.length; i++) steps[i].status = 'skipped'
+        db.prepare('UPDATE pipeline_runs SET status = ?, steps_snapshot = ?, completed_at = ? WHERE id = ? AND workspace_id = ?')
+          .run('failed', JSON.stringify(steps), now, runId, workspaceId)
+      }
+    }
+
     return { success: false, error: err.message }
   }
 }
@@ -365,6 +385,11 @@ async function startPipeline(db: ReturnType<typeof getDatabase>, pipelineId: num
     spawnResult = await spawnStep(db, pipeline.name, firstTemplate, stepsSnapshot, 0, runId, workspaceId, context, shouldAutoAdvance)
   }
 
+  // Re-read steps in case spawnStep's catch block updated them (spawn failure)
+  const freshRun = db.prepare('SELECT steps_snapshot, status FROM pipeline_runs WHERE id = ?').get(runId) as { steps_snapshot: string; status: string } | undefined
+  const finalSteps = freshRun ? JSON.parse(freshRun.steps_snapshot) : stepsSnapshot
+  const finalStatus = freshRun?.status || 'running'
+
   db_helpers.logActivity('pipeline_started', 'pipeline', pipelineId, triggeredBy, `Started pipeline: ${pipeline.name}`, { run_id: runId, task_id: taskId }, workspaceId)
 
   eventBus.broadcast('activity.created', {
@@ -379,9 +404,9 @@ async function startPipeline(db: ReturnType<typeof getDatabase>, pipelineId: num
     run: {
       id: runId,
       pipeline_id: pipelineId,
-      status: stepsSnapshot[0].status === 'failed' ? 'failed' : 'running',
+      status: finalStatus,
       current_step: 0,
-      steps_snapshot: stepsSnapshot,
+      steps_snapshot: finalSteps,
       spawn: spawnResult,
     }
   }, { status: 201 })
@@ -463,11 +488,11 @@ function cancelRun(db: ReturnType<typeof getDatabase>, runId: number, workspaceI
 
   for (const step of steps) {
     if (step.status === 'running') {
-      // Kill the running process
+      // Only kill PIDs tracked in live memory (safe from PID reuse after restart)
       const processKey = `${runId}-${step.step_index}`
-      const pid = runningProcesses.get(processKey) || step.pid
-      if (pid) {
-        try { process.kill(pid, 'SIGTERM') } catch { /* already dead */ }
+      const livePid = runningProcesses.get(processKey)
+      if (livePid) {
+        try { process.kill(livePid, 'SIGTERM') } catch { /* already dead */ }
         runningProcesses.delete(processKey)
       }
       step.status = 'skipped'
