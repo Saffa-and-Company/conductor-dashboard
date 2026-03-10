@@ -26,6 +26,7 @@ interface PipelineRun {
   status: string
   current_step: number
   steps_snapshot: string
+  context: string | null
   started_at: number | null
   completed_at: number | null
   triggered_by: string
@@ -102,7 +103,7 @@ export async function POST(request: NextRequest) {
     const { action, pipeline_id, run_id } = body
 
     if (action === 'start') {
-      return startPipeline(db, pipeline_id, auth.user?.username || 'system', workspaceId)
+      return startPipeline(db, pipeline_id, auth.user?.username || 'system', workspaceId, body.context)
     } else if (action === 'advance') {
       return advanceRun(db, run_id, body.success ?? true, body.error, workspaceId)
     } else if (action === 'cancel') {
@@ -140,7 +141,8 @@ async function spawnStep(
   steps: RunStepState[],
   stepIdx: number,
   runId: number,
-  workspaceId: number
+  workspaceId: number,
+  context?: string | null
 ): Promise<{ success: boolean; spawn_id?: string; error?: string }> {
   try {
     const { spawn } = await import('node:child_process')
@@ -148,10 +150,11 @@ async function spawnStep(
 
     const agentId = getPipelineAgentId()
     const spawnId = `pipeline-${runId}-step-${stepIdx}-${Date.now()}`
+    const contextBlock = context ? `\n\n--- Task Context ---\n${context}\n--- End Context ---\n\n` : ''
     const args = [
       'agent',
       '--agent', agentId,
-      '--message', `[Pipeline: ${pipelineName} | Step ${stepIdx + 1}] ${template.task_prompt}`,
+      '--message', `[Pipeline: ${pipelineName} | Step ${stepIdx + 1}]${contextBlock}${template.task_prompt}`,
       '--timeout', String(template.timeout_seconds),
       '--json',
     ]
@@ -181,7 +184,7 @@ async function spawnStep(
   }
 }
 
-async function startPipeline(db: ReturnType<typeof getDatabase>, pipelineId: number, triggeredBy: string, workspaceId: number) {
+async function startPipeline(db: ReturnType<typeof getDatabase>, pipelineId: number, triggeredBy: string, workspaceId: number, context?: string) {
   const pipeline = db.prepare('SELECT * FROM workflow_pipelines WHERE id = ? AND workspace_id = ?').get(pipelineId, workspaceId) as any
   if (!pipeline) return NextResponse.json({ error: 'Pipeline not found' }, { status: 404 })
 
@@ -210,9 +213,9 @@ async function startPipeline(db: ReturnType<typeof getDatabase>, pipelineId: num
 
   const now = Math.floor(Date.now() / 1000)
   const result = db.prepare(`
-    INSERT INTO pipeline_runs (pipeline_id, status, current_step, steps_snapshot, started_at, triggered_by, workspace_id)
-    VALUES (?, 'running', 0, ?, ?, ?, ?)
-  `).run(pipelineId, JSON.stringify(stepsSnapshot), now, triggeredBy, workspaceId)
+    INSERT INTO pipeline_runs (pipeline_id, status, current_step, steps_snapshot, context, started_at, triggered_by, workspace_id)
+    VALUES (?, 'running', 0, ?, ?, ?, ?, ?)
+  `).run(pipelineId, JSON.stringify(stepsSnapshot), context || null, now, triggeredBy, workspaceId)
 
   const runId = Number(result.lastInsertRowid)
 
@@ -225,7 +228,7 @@ async function startPipeline(db: ReturnType<typeof getDatabase>, pipelineId: num
   const firstTemplate = templateMap.get(steps[0].template_id)
   let spawnResult: any = null
   if (firstTemplate) {
-    spawnResult = await spawnStep(db, pipeline.name, firstTemplate, stepsSnapshot, 0, runId, workspaceId)
+    spawnResult = await spawnStep(db, pipeline.name, firstTemplate, stepsSnapshot, 0, runId, workspaceId, context)
   }
 
   db_helpers.logActivity('pipeline_started', 'pipeline', pipelineId, triggeredBy, `Started pipeline: ${pipeline.name}`, { run_id: runId }, workspaceId)
@@ -304,7 +307,7 @@ async function advanceRun(db: ReturnType<typeof getDatabase>, runId: number, suc
   let spawnResult: any = null
   if (template) {
     const pipeline = db.prepare('SELECT name FROM workflow_pipelines WHERE id = ? AND workspace_id = ?').get(run.pipeline_id, workspaceId) as any
-    spawnResult = await spawnStep(db, pipeline?.name || '?', template, steps, nextIdx, runId, workspaceId)
+    spawnResult = await spawnStep(db, pipeline?.name || '?', template, steps, nextIdx, runId, workspaceId, run.context)
   }
 
   db.prepare('UPDATE pipeline_runs SET current_step = ?, steps_snapshot = ? WHERE id = ? AND workspace_id = ?')

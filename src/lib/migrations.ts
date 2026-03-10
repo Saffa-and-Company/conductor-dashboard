@@ -831,6 +831,15 @@ const migrations: Migration[] = [
       db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_api_keys_revoked_at ON agent_api_keys(revoked_at)`)
     }
   }
+  {
+    id: '028_pipeline_run_context',
+    up: (db) => {
+      const cols = db.prepare(`PRAGMA table_info(pipeline_runs)`).all() as Array<{ name: string }>
+      if (!cols.some((c) => c.name === 'context')) {
+        db.exec(`ALTER TABLE pipeline_runs ADD COLUMN context TEXT`)
+      }
+    }
+  }
 ]
 
 export function runMigrations(db: Database.Database) {
