@@ -865,6 +865,32 @@ const migrations: Migration[] = [
       db.exec(`CREATE INDEX IF NOT EXISTS idx_pipeline_runs_task_id ON pipeline_runs(task_id)`)
       db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_pipeline_run_id ON tasks(pipeline_run_id)`)
     }
+  },
+  {
+    id: '030_blog_posts',
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS blog_posts (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          title TEXT NOT NULL,
+          slug TEXT NOT NULL,
+          content TEXT NOT NULL DEFAULT '',
+          excerpt TEXT,
+          author TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'published', 'archived')),
+          tags TEXT,
+          cover_image_url TEXT,
+          published_at INTEGER,
+          workspace_id INTEGER NOT NULL DEFAULT 1,
+          created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_blog_posts_slug ON blog_posts(slug, workspace_id);
+        CREATE INDEX IF NOT EXISTS idx_blog_posts_status ON blog_posts(status, workspace_id);
+        CREATE INDEX IF NOT EXISTS idx_blog_posts_author ON blog_posts(author, workspace_id);
+        CREATE INDEX IF NOT EXISTS idx_blog_posts_published_at ON blog_posts(published_at);
+      `)
+    }
   }
 ]
 

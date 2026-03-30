@@ -247,6 +247,22 @@ export interface StandupReport {
   overdueTasks: Task[]
 }
 
+export interface BlogPost {
+  id: number
+  title: string
+  slug: string
+  content: string
+  excerpt?: string
+  author: string
+  status: 'draft' | 'published' | 'archived'
+  tags: string[]
+  cover_image_url?: string
+  published_at?: number
+  workspace_id: number
+  created_at: number
+  updated_at: number
+}
+
 export interface CurrentUser {
   id: number
   username: string
@@ -324,6 +340,15 @@ interface MissionControlStore {
   taskComments: Record<number, Comment[]>
   setTaskComments: (taskId: number, comments: Comment[]) => void
   addTaskComment: (taskId: number, comment: Comment) => void
+
+  // Blog Portal
+  blogPosts: BlogPost[]
+  selectedBlogPost: BlogPost | null
+  setBlogPosts: (posts: BlogPost[]) => void
+  setSelectedBlogPost: (post: BlogPost | null) => void
+  addBlogPost: (post: BlogPost) => void
+  updateBlogPost: (postId: number, updates: Partial<BlogPost>) => void
+  deleteBlogPost: (postId: number) => void
 
   // Mission Control Phase 2 - Standup
   standupReports: StandupReport[]
@@ -784,6 +809,30 @@ export const useMissionControl = create<MissionControlStore>()(
             ? { ...msg, read_at: Math.floor(Date.now() / 1000) }
             : msg
         )
+      })),
+
+    // Blog Portal
+    blogPosts: [],
+    selectedBlogPost: null,
+    setBlogPosts: (posts) => set({ blogPosts: posts }),
+    setSelectedBlogPost: (post) => set({ selectedBlogPost: post }),
+    addBlogPost: (post) =>
+      set((state) => ({ blogPosts: [post, ...state.blogPosts] })),
+    updateBlogPost: (postId, updates) =>
+      set((state) => ({
+        blogPosts: state.blogPosts.map((p) =>
+          p.id === postId ? { ...p, ...updates } : p
+        ),
+        selectedBlogPost:
+          state.selectedBlogPost?.id === postId
+            ? { ...state.selectedBlogPost, ...updates }
+            : state.selectedBlogPost,
+      })),
+    deleteBlogPost: (postId) =>
+      set((state) => ({
+        blogPosts: state.blogPosts.filter((p) => p.id !== postId),
+        selectedBlogPost:
+          state.selectedBlogPost?.id === postId ? null : state.selectedBlogPost,
       })),
 
     // Mission Control Phase 2 - Standup
