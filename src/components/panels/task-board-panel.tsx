@@ -551,6 +551,9 @@ export function TaskBoardPanel() {
       <div className="flex justify-between items-center p-4 border-b border-border flex-shrink-0">
         <div className="flex items-center gap-3">
           <h2 className="text-xl font-bold text-foreground">Task Board</h2>
+          <span className="hidden md:inline text-xs text-muted-foreground">
+            Drag tasks between columns to update status
+          </span>
           <select
             value={projectFilter}
             onChange={(e) => setProjectFilter(e.target.value)}
@@ -642,7 +645,7 @@ export function TaskBoardPanel() {
                       updateTaskUrl(task.id)
                     }
                   }}
-                  className={`bg-surface-1 rounded-lg p-3 cursor-pointer hover:bg-surface-2 transition-smooth border-l-4 ${priorityColors[task.priority]} ${
+                  className={`bg-surface-1 rounded-lg p-3 cursor-grab active:cursor-grabbing hover:bg-surface-2 transition-smooth border-l-4 ${priorityColors[task.priority]} ${
                     draggedTask?.id === task.id ? 'opacity-50' : ''
                   }`}
                 >
@@ -888,6 +891,8 @@ function TaskDetailModal({
   const [reviewStatus, setReviewStatus] = useState<'approved' | 'rejected'>('approved')
   const [reviewNotes, setReviewNotes] = useState('')
   const [reviewError, setReviewError] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const mentionTargets = useMentionTargets()
   const [activeTab, setActiveTab] = useState<'details' | 'comments' | 'quality'>('details')
   const [reviewer, setReviewer] = useState('aegis')
@@ -996,6 +1001,32 @@ function TaskDetailModal({
     }
   }
 
+  const handleDeleteTask = async () => {
+    if (deleting) return
+    if (!confirm(`Delete task #${task.id}: "${task.title}"?`)) return
+
+    try {
+      setDeleting(true)
+      setDeleteError(null)
+
+      const response = await fetch(`/api/tasks/${task.id}`, {
+        method: 'DELETE',
+      })
+      const data = await response.json().catch(() => ({}))
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to delete task')
+      }
+
+      onUpdate()
+      onClose()
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : 'Failed to delete task')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   const renderComment = (comment: Comment, depth: number = 0) => (
     <div key={comment.id} className={`border-l-2 border-border pl-3 ${depth > 0 ? 'ml-4' : ''}`}>
       <div className="flex items-center justify-between text-xs text-muted-foreground">
@@ -1021,6 +1052,13 @@ function TaskDetailModal({
             <h3 id="task-detail-title" className="text-xl font-bold text-foreground">{task.title}</h3>
             <div className="flex gap-2">
               <button
+                onClick={handleDeleteTask}
+                disabled={deleting}
+                className="px-3 py-1.5 bg-red-500/15 text-red-400 hover:bg-red-500/25 disabled:opacity-60 disabled:cursor-not-allowed rounded-md transition-smooth text-sm font-medium"
+              >
+                {deleting ? 'Deleting...' : 'Delete'}
+              </button>
+              <button
                 onClick={() => onEdit(task)}
                 className="px-3 py-1.5 bg-primary/20 text-primary hover:bg-primary/30 rounded-md transition-smooth text-sm font-medium"
               >
@@ -1035,6 +1073,11 @@ function TaskDetailModal({
               </button>
             </div>
           </div>
+          {deleteError && (
+            <div className="mb-4 bg-red-500/10 border border-red-500/20 text-red-400 p-3 rounded-lg text-sm">
+              {deleteError}
+            </div>
+          )}
           {task.description ? (
             <div className="mb-4">
               <MarkdownRenderer content={task.description} />

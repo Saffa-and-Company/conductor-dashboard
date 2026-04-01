@@ -257,6 +257,10 @@
     to { opacity: 1; }
   }
 
+  .drag-over {
+    @apply ring-2 ring-primary/50 bg-primary/5;
+  }
+
   /* iOS safe area for bottom nav */
   .safe-area-bottom {
     padding-bottom: env(safe-area-inset-bottom, 0px);

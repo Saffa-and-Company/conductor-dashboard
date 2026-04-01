@@ -48,6 +48,10 @@ interface NimbusRunResponse {
   createdReviewTasks?: Array<{ taskId: number; recommendationId: string }>
 }
 
+function taskHref(taskId: number) {
+  return `/tasks?taskId=${taskId}`
+}
+
 export function IntegrationsPanel() {
   const [integrations, setIntegrations] = useState<Integration[]>([])
   const [categories, setCategories] = useState<Category[]>([])
@@ -651,12 +655,38 @@ function NimbusIntegrationCard({
           <p className="text-xs text-muted-foreground">{result.summary}</p>
           <div className="text-2xs text-muted-foreground">
             {result.action === 'sam-report' && result.taskId && (
-              <span>Created Task #{result.taskId}</span>
+              <a
+                href={taskHref(result.taskId)}
+                className="text-primary hover:underline"
+              >
+                Open Task #{result.taskId}
+              </a>
             )}
             {result.action === 'angela-recommend' && (
-              <span>
-                Created parent task #{result.parentTaskId} and {result.createdReviewTasks?.length || 0} review task{(result.createdReviewTasks?.length || 0) === 1 ? '' : 's'}
-              </span>
+              <div className="space-y-2">
+                {result.parentTaskId && (
+                  <a
+                    href={taskHref(result.parentTaskId)}
+                    className="block text-primary hover:underline"
+                  >
+                    Open parent task #{result.parentTaskId}
+                  </a>
+                )}
+                <div>
+                  Created {result.createdReviewTasks?.length || 0} review task{(result.createdReviewTasks?.length || 0) === 1 ? '' : 's'}:
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {(result.createdReviewTasks || []).map((task) => (
+                    <a
+                      key={task.recommendationId}
+                      href={taskHref(task.taskId)}
+                      className="rounded-full border border-border px-2.5 py-1 text-[11px] text-primary hover:bg-secondary"
+                    >
+                      #{task.taskId}
+                    </a>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
         </div>
