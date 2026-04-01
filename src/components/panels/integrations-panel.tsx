@@ -23,6 +23,31 @@ interface Category {
   label: string
 }
 
+interface NimbusIntegrationStatus {
+  ok: boolean
+  configured: boolean
+  baseUrl: string | null
+  error?: string
+  nimbus?: {
+    ok: boolean
+    service: string
+    status: string
+    projectId: string
+    capabilities: Record<string, unknown>
+  }
+}
+
+interface NimbusRunResponse {
+  ok: boolean
+  action: 'sam-report' | 'angela-recommend'
+  runId: string
+  summary: string
+  taskId?: number
+  parentTaskId?: number
+  taskCount: number
+  createdReviewTasks?: Array<{ taskId: number; recommendationId: string }>
+}
+
 export function IntegrationsPanel() {
   const [integrations, setIntegrations] = useState<Integration[]>([])
   const [categories, setCategories] = useState<Category[]>([])
@@ -41,6 +66,12 @@ export function IntegrationsPanel() {
   const [pulling, setPulling] = useState<string | null>(null) // integration id being pulled
   const [pullingAll, setPullingAll] = useState(false)
   const [confirmRemove, setConfirmRemove] = useState<{ integrationId: string; keys: string[] } | null>(null)
+  const [nimbusStatus, setNimbusStatus] = useState<NimbusIntegrationStatus | null>(null)
+  const [nimbusLoading, setNimbusLoading] = useState(true)
+  const [nimbusActionLoading, setNimbusActionLoading] = useState<'sam-report' | 'angela-recommend' | null>(null)
+  const [nimbusDays, setNimbusDays] = useState('7')
+  const [nimbusFunnelSlug, setNimbusFunnelSlug] = useState('')
+  const [nimbusResult, setNimbusResult] = useState<NimbusRunResponse | null>(null)
 
   const showFeedback = (ok: boolean, text: string) => {
     setFeedback({ ok, text })
@@ -78,6 +109,25 @@ export function IntegrationsPanel() {
   }, [])
 
   useEffect(() => { fetchIntegrations() }, [fetchIntegrations])
+
+  const fetchNimbusStatus = useCallback(async () => {
+    try {
+      const res = await fetch('/api/integrations/nimbus')
+      const data = await res.json()
+      setNimbusStatus(data)
+    } catch {
+      setNimbusStatus({
+        ok: false,
+        configured: false,
+        baseUrl: null,
+        error: 'Failed to reach Nimbus integration route',
+      })
+    } finally {
+      setNimbusLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { fetchNimbusStatus() }, [fetchNimbusStatus])
 
   const handleEdit = (envKey: string, value: string) => {
     setEdits(prev => ({ ...prev, [envKey]: value }))
@@ -218,6 +268,33 @@ export function IntegrationsPanel() {
     setConfirmRemove({ integrationId, keys })
   }
 
+  const handleNimbusRun = async (action: 'sam-report' | 'angela-recommend') => {
+    setNimbusActionLoading(action)
+    try {
+      const res = await fetch('/api/integrations/nimbus', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action,
+          days: Number(nimbusDays),
+          funnelSlug: action === 'angela-recommend' ? nimbusFunnelSlug || undefined : undefined,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        showFeedback(false, data.error || 'Nimbus run failed')
+        return
+      }
+      setNimbusResult(data)
+      showFeedback(true, `${action === 'sam-report' ? 'Sam' : 'Angela'} run queued into Task Board`)
+      fetchNimbusStatus()
+    } catch {
+      showFeedback(false, 'Network error')
+    } finally {
+      setNimbusActionLoading(null)
+    }
+  }
+
   // Loading state
   if (loading) {
     return (
@@ -333,6 +410,22 @@ export function IntegrationsPanel() {
         })}
       </div>
 
+      {activeCategory === 'infra' && (
+        <NimbusIntegrationCard
+          status={nimbusStatus}
+          loading={nimbusLoading}
+          runningAction={nimbusActionLoading}
+          days={nimbusDays}
+          funnelSlug={nimbusFunnelSlug}
+          result={nimbusResult}
+          onDaysChange={setNimbusDays}
+          onFunnelSlugChange={setNimbusFunnelSlug}
+          onRefresh={fetchNimbusStatus}
+          onRunSam={() => handleNimbusRun('sam-report')}
+          onRunAngela={() => handleNimbusRun('angela-recommend')}
+        />
+      )}
+
       {/* Integration cards */}
       <div className="space-y-3">
         {filteredIntegrations.map(integration => (
@@ -416,6 +509,155 @@ export function IntegrationsPanel() {
                 Remove
               </button>
             </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function NimbusIntegrationCard({
+  status,
+  loading,
+  runningAction,
+  days,
+  funnelSlug,
+  result,
+  onDaysChange,
+  onFunnelSlugChange,
+  onRefresh,
+  onRunSam,
+  onRunAngela,
+}: {
+  status: NimbusIntegrationStatus | null
+  loading: boolean
+  runningAction: 'sam-report' | 'angela-recommend' | null
+  days: string
+  funnelSlug: string
+  result: NimbusRunResponse | null
+  onDaysChange: (value: string) => void
+  onFunnelSlugChange: (value: string) => void
+  onRefresh: () => void
+  onRunSam: () => void
+  onRunAngela: () => void
+}) {
+  const badgeClass = !status
+    ? 'bg-muted text-muted-foreground'
+    : status.ok
+      ? 'bg-green-500/10 text-green-400'
+      : status.configured
+        ? 'bg-amber-500/10 text-amber-400'
+        : 'bg-destructive/10 text-destructive'
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2.5">
+            <span className="text-sm font-semibold text-foreground">Nimbus Buy Better</span>
+            <span className={`text-2xs px-2 py-1 rounded-full ${badgeClass}`}>
+              {loading ? 'Checking…' : status?.ok ? 'Ready' : status?.configured ? 'Reachable issue' : 'Not configured'}
+            </span>
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Conductor-side operator controls for the Buy Better Nimbus endpoints. Creates Task Board artifacts from Sam and Angela runs.
+          </p>
+          {status?.baseUrl && (
+            <p className="mt-2 text-2xs font-mono text-muted-foreground/70">{status.baseUrl}</p>
+          )}
+        </div>
+        <button
+          onClick={onRefresh}
+          className="px-3 py-1.5 text-xs rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+        >
+          Refresh
+        </button>
+      </div>
+
+      {status?.error && (
+        <div className="rounded-lg bg-destructive/10 text-destructive p-3 text-xs">
+          {status.error}
+        </div>
+      )}
+
+      {status?.nimbus && (
+        <div className="grid gap-3 md:grid-cols-3 text-xs">
+          <div className="rounded-lg border border-border bg-background/50 p-3">
+            <div className="text-muted-foreground">Service</div>
+            <div className="mt-1 font-medium text-foreground">{status.nimbus.service}</div>
+          </div>
+          <div className="rounded-lg border border-border bg-background/50 p-3">
+            <div className="text-muted-foreground">Status</div>
+            <div className="mt-1 font-medium text-foreground">{status.nimbus.status}</div>
+          </div>
+          <div className="rounded-lg border border-border bg-background/50 p-3">
+            <div className="text-muted-foreground">Project</div>
+            <div className="mt-1 font-medium text-foreground">{status.nimbus.projectId}</div>
+          </div>
+        </div>
+      )}
+
+      <div className="grid gap-3 md:grid-cols-2">
+        <label className="block">
+          <span className="mb-1.5 block text-2xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Date window
+          </span>
+          <input
+            type="number"
+            min="1"
+            max="30"
+            value={days}
+            onChange={(e) => onDaysChange(e.target.value)}
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1.5 block text-2xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Funnel filter for Angela
+          </span>
+          <input
+            type="text"
+            value={funnelSlug}
+            onChange={(e) => onFunnelSlugChange(e.target.value)}
+            placeholder="Optional: checkout"
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+          />
+        </label>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <button
+          onClick={onRunSam}
+          disabled={runningAction !== null || !status?.configured}
+          className="px-4 py-2 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {runningAction === 'sam-report' ? 'Running Sam…' : 'Run Sam Report'}
+        </button>
+        <button
+          onClick={onRunAngela}
+          disabled={runningAction !== null || !status?.configured}
+          className="px-4 py-2 text-xs rounded-md border border-border text-foreground hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {runningAction === 'angela-recommend' ? 'Running Angela…' : 'Run Angela Recommendations'}
+        </button>
+      </div>
+
+      {result && (
+        <div className="rounded-lg border border-border bg-background/50 p-4 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-semibold text-foreground">Latest run</span>
+            <span className="text-2xs font-mono text-muted-foreground">{result.runId}</span>
+          </div>
+          <p className="text-xs text-muted-foreground">{result.summary}</p>
+          <div className="text-2xs text-muted-foreground">
+            {result.action === 'sam-report' && result.taskId && (
+              <span>Created Task #{result.taskId}</span>
+            )}
+            {result.action === 'angela-recommend' && (
+              <span>
+                Created parent task #{result.parentTaskId} and {result.createdReviewTasks?.length || 0} review task{(result.createdReviewTasks?.length || 0) === 1 ? '' : 's'}
+              </span>
+            )}
           </div>
         </div>
       )}

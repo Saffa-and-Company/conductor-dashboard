@@ -190,6 +190,20 @@ export function HeaderBar() {
           Chat
         </button>
 
+        {/* IDE / Code Server */}
+        <a
+          href="https://ide.cottontree.vc"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="h-8 px-2.5 rounded-md text-xs font-medium transition-smooth flex items-center gap-1.5 text-muted-foreground hover:text-foreground hover:bg-secondary"
+          title="Open VS Code IDE"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+          </svg>
+          IDE
+        </a>
+
         {/* Notifications */}
         <button
           onClick={() => navigateToPanel('notifications')}
