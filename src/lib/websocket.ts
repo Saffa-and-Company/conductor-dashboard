@@ -516,7 +516,7 @@ export function useWebSocket() {
 
     const parsed = new URL(built, window.location.origin)
     parsed.protocol = parsed.protocol === 'https:' ? 'wss:' : parsed.protocol === 'http:' ? 'ws:' : parsed.protocol
-    parsed.pathname = '/'
+    // Preserve pathname (e.g. /gateway) — buildGatewayWebSocketUrl already handles cleanup.
     parsed.search = ''
     parsed.hash = ''
     return parsed.toString().replace(/\/$/, '')
