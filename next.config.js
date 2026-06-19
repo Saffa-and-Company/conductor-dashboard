@@ -16,10 +16,10 @@ const nextConfig = {
     const csp = [
       `default-src 'self'`,
       `script-src 'self' 'unsafe-inline'${googleEnabled ? ' https://accounts.google.com' : ''}`,
-      `style-src 'self' 'unsafe-inline'`,
+      `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`,
       `connect-src 'self' ws: wss: http://127.0.0.1:* http://localhost:*`,
       `img-src 'self' data: blob:${googleEnabled ? ' https://*.googleusercontent.com https://lh3.googleusercontent.com' : ''}`,
-      `font-src 'self' data:`,
+      `font-src 'self' data: https://fonts.gstatic.com`,
       `frame-src 'self'${googleEnabled ? ' https://accounts.google.com' : ''}`,
     ].join('; ')
 
