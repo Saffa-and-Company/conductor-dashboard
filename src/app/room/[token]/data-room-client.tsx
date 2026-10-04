@@ -9,6 +9,11 @@ if (typeof window !== 'undefined') {
   pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`
 }
 
+// ─── Constants ────────────────────────────────────────────────────────
+
+const COTTON_BLUE = '#00CDFF'
+const DEFAULT_ACCENT = '#3b82f6'
+
 // ─── Types ───────────────────────────────────────────────────────────
 
 interface RoomBranding {
@@ -61,6 +66,47 @@ function isSpreadsheet(mime: string, filename: string): boolean {
   // Uploads may store XLSX as application/octet-stream — check extension
   const ext = filename.split('.').pop()?.toLowerCase()
   return ext === 'xlsx' || ext === 'xls'
+}
+
+/** Override generic blue accent to cotton-blue */
+function resolveAccent(branding: RoomBranding): string {
+  const raw = branding.accentColor || DEFAULT_ACCENT
+  return raw === DEFAULT_ACCENT ? COTTON_BLUE : raw
+}
+
+/** Format a cell value for display — adds commas to numbers, % to decimals that look like percentages */
+function formatCellValue(val: string | number | boolean | null, header?: string): string {
+  if (val == null) return ''
+  if (typeof val === 'boolean') return val ? 'Yes' : 'No'
+  if (typeof val === 'number') {
+    const hdr = (header || '').toLowerCase()
+    // Percentage detection: header contains %, or value is a decimal between 0 and 1 and header hints at rate/pct
+    if (hdr.includes('%') || hdr.includes('percent') || hdr.includes('pct')) {
+      return (val * 100).toFixed(2) + '%'
+    }
+    if ((hdr.includes('rate') || hdr.includes('ratio')) && val > 0 && val < 1) {
+      return (val * 100).toFixed(2) + '%'
+    }
+    // Currency / large number formatting with commas
+    if (Number.isInteger(val) || Math.abs(val) >= 100) {
+      return val.toLocaleString('en-US', { maximumFractionDigits: 2 })
+    }
+    return val.toLocaleString('en-US', { maximumFractionDigits: 4 })
+  }
+  return String(val)
+}
+
+/** Detect if the screen is below md breakpoint */
+function useIsMobile(): boolean {
+  const [isMobile, setIsMobile] = useState(false)
+  useEffect(() => {
+    const mql = window.matchMedia('(max-width: 767px)')
+    setIsMobile(mql.matches)
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches)
+    mql.addEventListener('change', handler)
+    return () => mql.removeEventListener('change', handler)
+  }, [])
+  return isMobile
 }
 
 // ─── Main Component ──────────────────────────────────────────────────
@@ -131,9 +177,6 @@ export function DataRoomClient({ token }: { token: string }) {
       throw err
     }
   }, [token, fetchRoom])
-
-  const primaryColor = branding.primaryColor || '#0f172a'
-  const accentColor = branding.accentColor || '#3b82f6'
 
   if (loading) {
     return (
@@ -215,12 +258,19 @@ function EmailGate({
     }
   }
 
-  const accentColor = branding.accentColor || '#3b82f6'
+  const accentColor = resolveAccent(branding)
 
   return (
-    <div className="flex items-center justify-center min-h-screen p-4">
-      {/* Background gradient */}
+    <div className="flex items-center justify-center min-h-screen p-4 relative overflow-hidden">
+      {/* Animated background gradient */}
       <div className="fixed inset-0 bg-gradient-to-br from-[#0a0a0f] via-[#0f1724] to-[#0a0a0f]" />
+      <div
+        className="fixed inset-0 opacity-30 animate-pulse"
+        style={{
+          background: `radial-gradient(ellipse 80% 60% at 50% 40%, ${accentColor}10, transparent 70%)`,
+          animationDuration: '6s',
+        }}
+      />
 
       <div className="relative w-full max-w-md">
         {/* Glassmorphism card */}
@@ -293,14 +343,14 @@ function EmailGate({
             <button
               type="submit"
               disabled={submitting || !email}
-              className="w-full py-3 rounded-xl text-sm font-semibold text-white transition-all disabled:opacity-50"
+              className="w-full py-3 rounded-xl text-sm font-semibold text-white transition-all disabled:opacity-50 hover:brightness-110 active:scale-[0.98]"
               style={{ backgroundColor: accentColor }}
             >
               {submitting ? 'Entering...' : 'View Documents'}
             </button>
           </form>
 
-          <p className="text-[10px] text-white/20 text-center mt-6">
+          <p className="text-[11px] text-white/30 text-center mt-6">
             Secure document sharing powered by Conductor
           </p>
         </div>
@@ -325,7 +375,10 @@ function DocumentViewer({
   onSelectDoc: (doc: RoomDoc) => void
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const accentColor = branding.accentColor || '#3b82f6'
+  const [docLoading, setDocLoading] = useState(false)
+  const [contentVisible, setContentVisible] = useState(true)
+  const isMobile = useIsMobile()
+  const accentColor = resolveAccent(branding)
 
   // Group documents by folder
   const folders = documents.reduce<Record<string, RoomDoc[]>>((acc, doc) => {
@@ -335,63 +388,113 @@ function DocumentViewer({
     return acc
   }, {})
 
+  const handleSelectDoc = (doc: RoomDoc) => {
+    if (doc.id === selectedDoc?.id) {
+      // Same doc — just close sidebar on mobile
+      if (isMobile) setSidebarOpen(false)
+      return
+    }
+    // Trigger loading transition
+    setContentVisible(false)
+    setDocLoading(true)
+    onSelectDoc(doc)
+
+    // Auto-close sidebar on mobile
+    if (isMobile) setSidebarOpen(false)
+
+    // Short delay then reveal content with fade
+    setTimeout(() => {
+      setDocLoading(false)
+      setContentVisible(true)
+    }, 150)
+  }
+
   const handleDownload = (doc: RoomDoc) => {
     window.open(`/api/room/${token}/documents/${doc.id}/file?download=1`, '_blank')
   }
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-screen overflow-hidden relative">
+      {/* Mobile backdrop */}
+      {isMobile && sidebarOpen && (
+        <div
+          className="fixed inset-0 z-10 bg-black/60 backdrop-blur-sm"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
-      <div className={`${sidebarOpen ? 'w-72' : 'w-0'} transition-all duration-200 shrink-0 overflow-hidden`}>
+      <div
+        className={`
+          ${isMobile
+            ? `fixed inset-y-0 left-0 z-20 w-72 transform transition-transform duration-200 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`
+            : `${sidebarOpen ? 'w-72' : 'w-0'} transition-all duration-200 shrink-0 overflow-hidden`
+          }
+        `}
+      >
         <div className="w-72 h-full flex flex-col border-r border-white/10 bg-[#0c0c14]">
-          {/* Header */}
-          <div className="p-4 border-b border-white/10">
+          {/* Sidebar header */}
+          <div className="p-4 border-b border-white/10 relative">
             <h2 className="text-sm font-semibold text-white truncate">
               {branding.companyName || 'Data Room'}
             </h2>
             {branding.tagline && (
               <p className="text-xs text-white/40 mt-0.5 truncate">{branding.tagline}</p>
             )}
+            {/* Cotton-blue underline accent */}
+            <div
+              className="absolute bottom-0 left-4 right-4 h-px"
+              style={{ background: `linear-gradient(to right, ${accentColor}60, transparent)` }}
+            />
           </div>
 
           {/* Document list */}
           <div className="flex-1 overflow-y-auto p-2">
-            {Object.entries(folders).map(([folder, docs]) => (
-              <div key={folder}>
+            {Object.entries(folders).map(([folder, docs], folderIdx) => (
+              <div key={folder} className={folderIdx > 0 ? 'mt-3' : ''}>
                 {folder && (
-                  <p className="text-[10px] tracking-wider text-white/30 font-semibold px-2 pt-3 pb-1 uppercase">
+                  <p className="text-[11px] tracking-wider text-white/50 font-semibold px-2 pt-3 pb-1.5 uppercase">
                     {folder}
                   </p>
                 )}
-                {docs.map(doc => (
-                  <button
-                    key={doc.id}
-                    onClick={() => onSelectDoc(doc)}
-                    className={`w-full text-left px-3 py-2.5 rounded-lg mb-0.5 transition-colors ${
-                      selectedDoc?.id === doc.id
-                        ? 'bg-white/10 text-white'
-                        : 'text-white/60 hover:text-white hover:bg-white/5'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <DocIcon mime={doc.mime_type} filename={doc.original_name} />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-medium truncate">{doc.original_name}</p>
-                        <p className="text-[10px] text-white/30">{formatBytes(doc.file_size)}</p>
+                {docs.map(doc => {
+                  const isSelected = selectedDoc?.id === doc.id
+                  return (
+                    <button
+                      key={doc.id}
+                      onClick={() => handleSelectDoc(doc)}
+                      className={`w-full text-left px-3 py-2.5 rounded-lg mb-0.5 transition-colors ${
+                        isSelected
+                          ? 'text-white'
+                          : 'text-white/60 hover:text-white hover:bg-white/5'
+                      }`}
+                      style={isSelected ? {
+                        backgroundColor: `${accentColor}15`,
+                        borderLeft: `2px solid ${accentColor}`,
+                      } : { borderLeft: '2px solid transparent' }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <DocIcon mime={doc.mime_type} filename={doc.original_name} />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-medium truncate">{doc.original_name}</p>
+                          <p className="text-[10px] text-white/30">{formatBytes(doc.file_size)}</p>
+                        </div>
                       </div>
-                    </div>
-                  </button>
-                ))}
+                    </button>
+                  )
+                })}
               </div>
             ))}
           </div>
         </div>
       </div>
 
-      {/* Toggle sidebar */}
+      {/* Toggle sidebar — visible on mobile and when sidebar is collapsed on desktop */}
       <button
         onClick={() => setSidebarOpen(!sidebarOpen)}
-        className="absolute top-3 left-2 z-10 md:hidden w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center text-white/50 hover:text-white transition-colors"
+        className={`absolute top-3 left-2 z-30 w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 transition-colors ${
+          isMobile || !sidebarOpen ? 'block' : 'hidden'
+        }`}
       >
         <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
           <path d="M2 4h12M2 8h12M2 12h12" />
@@ -399,68 +502,111 @@ function DocumentViewer({
       </button>
 
       {/* Document content */}
-      <div className="flex-1 min-w-0 flex flex-col bg-[#0a0a0f]">
+      <div className="flex-1 min-w-0 flex flex-col bg-[#0e0e18]">
         {selectedDoc ? (
           <>
-            {/* Document header */}
+            {/* Document header with breadcrumb */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 shrink-0">
               <div className="min-w-0">
+                {selectedDoc.folder && (
+                  <p className="text-[11px] text-white/40 truncate mb-0.5">
+                    {selectedDoc.folder}
+                    <span className="mx-1.5 text-white/20">/</span>
+                  </p>
+                )}
                 <p className="text-sm font-medium text-white truncate">{selectedDoc.original_name}</p>
               </div>
               {selectedDoc.allow_download && (
                 <button
                   onClick={() => handleDownload(selectedDoc)}
-                  className="px-3 py-1.5 text-xs rounded-lg text-white transition-colors shrink-0 ml-2"
-                  style={{ backgroundColor: `${accentColor}20`, color: accentColor }}
+                  className="px-3 py-1.5 text-xs rounded-lg transition-colors shrink-0 ml-2 border hover:brightness-125"
+                  style={{
+                    backgroundColor: `${accentColor}15`,
+                    borderColor: `${accentColor}40`,
+                    color: accentColor,
+                  }}
                 >
                   Download
                 </button>
               )}
             </div>
 
-            {/* Document body */}
-            <div className="flex-1 overflow-auto">
-              {isPdf(selectedDoc.mime_type) ? (
-                <PDFViewer
-                  url={`/api/room/${token}/documents/${selectedDoc.id}/file`}
-                  docId={selectedDoc.id}
-                  token={token}
-                />
-              ) : isImage(selectedDoc.mime_type) ? (
-                <div className="flex items-center justify-center p-8 h-full">
-                  <img
-                    src={`/api/room/${token}/documents/${selectedDoc.id}/file`}
-                    alt={selectedDoc.original_name}
-                    className="max-w-full max-h-full object-contain rounded-lg"
-                  />
-                </div>
-              ) : isSpreadsheet(selectedDoc.mime_type, selectedDoc.original_name) ? (
-                <XLSXViewer
-                  url={`/api/room/${token}/documents/${selectedDoc.id}/file`}
-                />
-              ) : (
-                <div className="flex items-center justify-center h-full">
-                  <div className="text-center p-8">
-                    <DocIcon mime={selectedDoc.mime_type} large filename={selectedDoc.original_name} />
-                    <p className="text-white/60 text-sm mt-3">{selectedDoc.original_name}</p>
-                    <p className="text-white/30 text-xs mt-1">{formatBytes(selectedDoc.file_size)}</p>
-                    {selectedDoc.allow_download && (
-                      <button
-                        onClick={() => handleDownload(selectedDoc)}
-                        className="mt-4 px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors"
-                        style={{ backgroundColor: accentColor }}
-                      >
-                        Download File
-                      </button>
-                    )}
-                  </div>
+            {/* Document body with loading/fade */}
+            <div className="flex-1 overflow-auto relative">
+              {/* Loading overlay */}
+              {docLoading && (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#0e0e18]/80">
+                  <div className="w-6 h-6 border-2 border-white/20 rounded-full animate-spin" style={{ borderTopColor: accentColor }} />
                 </div>
               )}
+
+              {/* Content with fade transition */}
+              <div
+                className="h-full transition-opacity duration-200"
+                style={{ opacity: contentVisible ? 1 : 0 }}
+              >
+                {isPdf(selectedDoc.mime_type) ? (
+                  <PDFViewer
+                    url={`/api/room/${token}/documents/${selectedDoc.id}/file`}
+                    docId={selectedDoc.id}
+                    token={token}
+                    accentColor={accentColor}
+                  />
+                ) : isImage(selectedDoc.mime_type) ? (
+                  <div className="flex items-center justify-center p-8 h-full">
+                    <img
+                      src={`/api/room/${token}/documents/${selectedDoc.id}/file`}
+                      alt={selectedDoc.original_name}
+                      className="max-w-full max-h-full object-contain rounded-lg"
+                    />
+                  </div>
+                ) : isSpreadsheet(selectedDoc.mime_type, selectedDoc.original_name) ? (
+                  <XLSXViewer
+                    url={`/api/room/${token}/documents/${selectedDoc.id}/file`}
+                    accentColor={accentColor}
+                  />
+                ) : (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-center p-8">
+                      <DocIcon mime={selectedDoc.mime_type} large filename={selectedDoc.original_name} />
+                      <p className="text-white/60 text-sm mt-3">{selectedDoc.original_name}</p>
+                      <p className="text-white/30 text-xs mt-1">{formatBytes(selectedDoc.file_size)}</p>
+                      {selectedDoc.allow_download && (
+                        <button
+                          onClick={() => handleDownload(selectedDoc)}
+                          className="mt-4 px-4 py-2 rounded-lg text-sm font-medium text-white transition-all hover:brightness-110 active:scale-[0.98]"
+                          style={{ backgroundColor: accentColor }}
+                        >
+                          Download File
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </>
         ) : (
-          <div className="flex items-center justify-center h-full text-white/30 text-sm">
-            Select a document to view
+          /* Empty state — branded placeholder */
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center">
+              <div
+                className="w-16 h-16 mx-auto mb-4 rounded-2xl flex items-center justify-center"
+                style={{ backgroundColor: `${accentColor}10` }}
+              >
+                <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke={accentColor} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.6 }}>
+                  <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                  <polyline points="14,2 14,8 20,8" />
+                  <line x1="16" y1="13" x2="8" y2="13" />
+                  <line x1="16" y1="17" x2="8" y2="17" />
+                  <polyline points="10,9 9,9 8,9" />
+                </svg>
+              </div>
+              <p className="text-white/40 text-sm">Select a document to view</p>
+              {branding.companyName && (
+                <p className="text-white/20 text-xs mt-1">{branding.companyName}</p>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -470,7 +616,7 @@ function DocumentViewer({
 
 // ─── PDF Viewer ──────────────────────────────────────────────────────
 
-function PDFViewer({ url, docId, token }: { url: string; docId: number; token: string }) {
+function PDFViewer({ url, docId, token, accentColor }: { url: string; docId: number; token: string; accentColor: string }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [numPages, setNumPages] = useState(0)
   const [currentPage, setCurrentPage] = useState(1)
@@ -598,50 +744,50 @@ function PDFViewer({ url, docId, token }: { url: string; docId: number; token: s
   if (!pdfDoc) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+        <div className="w-6 h-6 border-2 border-white/20 rounded-full animate-spin" style={{ borderTopColor: accentColor }} />
       </div>
     )
   }
 
   return (
     <div className="flex flex-col h-full">
-      {/* Controls */}
-      <div className="flex items-center justify-center gap-4 px-4 py-2 bg-white/[0.02] border-b border-white/5 shrink-0">
+      {/* Controls — enhanced toolbar */}
+      <div className="flex items-center justify-center gap-4 px-4 py-2.5 bg-white/[0.03] border-b border-white/5 shrink-0">
         <span className="text-xs text-white/50">
           Page {currentPage} of {numPages}
         </span>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 bg-white/5 rounded-lg px-1 py-0.5">
           <button
             onClick={() => setScale(s => Math.max(0.5, s - 0.2))}
-            className="w-7 h-7 rounded flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 transition-colors text-sm"
+            className="w-8 h-8 rounded-md flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 transition-colors text-base font-medium"
           >
             -
           </button>
-          <span className="text-xs text-white/50 w-12 text-center">{Math.round(scale * 100)}%</span>
+          <span className="text-xs text-white/50 w-12 text-center tabular-nums">{Math.round(scale * 100)}%</span>
           <button
             onClick={() => setScale(s => Math.min(3, s + 0.2))}
-            className="w-7 h-7 rounded flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 transition-colors text-sm"
+            className="w-8 h-8 rounded-md flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 transition-colors text-base font-medium"
           >
             +
           </button>
         </div>
       </div>
 
-      {/* Pages */}
-      <div ref={containerRef} className="flex-1 overflow-auto py-4">
-        <div className="flex flex-col items-center gap-4">
+      {/* Pages — with background offset and page borders */}
+      <div ref={containerRef} className="flex-1 overflow-auto py-6 bg-[#1a1a24]">
+        <div className="flex flex-col items-center gap-6">
           {Array.from({ length: numPages }, (_, i) => i + 1).map(pageNum => (
             <div
               key={pageNum}
               data-page={pageNum}
-              className="shadow-lg shadow-black/50"
+              className="shadow-xl shadow-black/50 rounded-lg ring-1 ring-white/10"
             >
               <canvas
                 ref={(el) => {
                   if (el) canvasRefs.current.set(pageNum, el)
                   else canvasRefs.current.delete(pageNum)
                 }}
-                className="block"
+                className="block rounded-lg"
               />
             </div>
           ))}
@@ -653,7 +799,7 @@ function PDFViewer({ url, docId, token }: { url: string; docId: number; token: s
 
 // ─── XLSX Viewer ─────────────────────────────────────────────────────
 
-function XLSXViewer({ url }: { url: string }) {
+function XLSXViewer({ url, accentColor }: { url: string; accentColor: string }) {
   const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null)
   const [sheetNames, setSheetNames] = useState<string[]>([])
   const [activeSheet, setActiveSheet] = useState(0)
@@ -687,7 +833,7 @@ function XLSXViewer({ url }: { url: string }) {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+        <div className="w-6 h-6 border-2 border-white/20 rounded-full animate-spin" style={{ borderTopColor: accentColor }} />
       </div>
     )
   }
@@ -716,9 +862,10 @@ function XLSXViewer({ url }: { url: string }) {
               onClick={() => setActiveSheet(i)}
               className={`px-4 py-2 text-xs whitespace-nowrap border-b-2 transition-colors ${
                 i === activeSheet
-                  ? 'border-blue-400 text-white bg-white/[0.05]'
+                  ? 'text-white bg-white/[0.05]'
                   : 'border-transparent text-white/40 hover:text-white/70 hover:bg-white/[0.03]'
               }`}
+              style={i === activeSheet ? { borderBottomColor: accentColor } : undefined}
             >
               {name}
             </button>
@@ -726,7 +873,7 @@ function XLSXViewer({ url }: { url: string }) {
         </div>
       )}
 
-      {/* Table */}
+      {/* Table — high-contrast redesign */}
       <div className="flex-1 overflow-auto">
         {rows.length === 0 ? (
           <div className="flex items-center justify-center h-full">
@@ -739,7 +886,10 @@ function XLSXViewer({ url }: { url: string }) {
                 {headers.map((h, i) => (
                   <th
                     key={i}
-                    className="px-3 py-2.5 text-left font-semibold text-white/80 bg-[#151520] border-b border-white/10 whitespace-nowrap"
+                    className={`px-3 py-3 text-left font-semibold text-white bg-[#1a1a2e] border-b border-white/10 whitespace-nowrap ${
+                      i === 0 ? 'sticky left-0 z-20 bg-[#1a1a2e]' : ''
+                    }`}
+                    style={i === 0 ? { borderLeft: `3px solid ${accentColor}` } : undefined}
                   >
                     {h != null ? String(h) : ''}
                   </th>
@@ -747,24 +897,30 @@ function XLSXViewer({ url }: { url: string }) {
               </tr>
             </thead>
             <tbody>
-              {rows.map((row, ri) => (
-                <tr key={ri} className={ri % 2 === 0 ? 'bg-white/[0.02]' : 'bg-transparent'}>
-                  {headers.map((_, ci) => {
-                    const cell = row[ci]
-                    const isNum = typeof cell === 'number'
-                    return (
-                      <td
-                        key={ci}
-                        className={`px-3 py-2 border-b border-white/5 whitespace-nowrap ${
-                          isNum ? 'text-right text-white/70 tabular-nums' : 'text-white/60'
-                        }`}
-                      >
-                        {cell != null ? String(cell) : ''}
-                      </td>
-                    )
-                  })}
-                </tr>
-              ))}
+              {rows.map((row, ri) => {
+                const stripeBg = ri % 2 === 0 ? 'bg-[#12121f]' : 'bg-[#16162a]'
+                return (
+                  <tr key={ri} className={`${stripeBg} hover:bg-white/10 transition-colors`}>
+                    {headers.map((header, ci) => {
+                      const cell = row[ci]
+                      const isNum = typeof cell === 'number'
+                      const headerStr = header != null ? String(header) : ''
+                      return (
+                        <td
+                          key={ci}
+                          className={`px-3 py-2 border-b border-white/5 whitespace-nowrap ${
+                            ci === 0 ? `sticky left-0 z-[5] ${stripeBg}` : ''
+                          } ${
+                            isNum ? 'text-right text-white/80 tabular-nums font-mono' : 'text-white/90'
+                          }`}
+                        >
+                          {formatCellValue(cell, headerStr)}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         )}
