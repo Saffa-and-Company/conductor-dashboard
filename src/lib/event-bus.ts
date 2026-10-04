@@ -31,6 +31,9 @@ export type EventType =
   | 'connection.created'
   | 'connection.disconnected'
   | 'github.synced'
+  | 'dataroom.visitor_entered'
+  | 'dataroom.document_viewed'
+  | 'dataroom.document_downloaded'
 
 class ServerEventBus extends EventEmitter {
   private static instance: ServerEventBus | null = null

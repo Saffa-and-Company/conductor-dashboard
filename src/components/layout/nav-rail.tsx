@@ -28,6 +28,7 @@ const navGroups: NavGroup[] = [
       { id: 'sessions', label: 'Sessions', icon: <SessionsIcon />, priority: false },
       { id: 'office', label: 'Office', icon: <OfficeIcon />, priority: false },
       { id: 'documents', label: 'Documents', icon: <DocumentsIcon />, priority: false },
+      { id: 'data-room', label: 'Data Room', icon: <DataRoomIcon />, priority: false },
     ],
   },
   {
@@ -645,6 +646,16 @@ function DocumentsIcon() {
       <path d="M3 1.5h7l3 3V14a1 1 0 01-1 1H3a1 1 0 01-1-1V2.5a1 1 0 011-1z" />
       <path d="M10 1.5V5h3" />
       <path d="M5 8h6M5 10.5h6M5 13h4" />
+    </svg>
+  )
+}
+
+function DataRoomIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="2" width="12" height="12" rx="2" />
+      <path d="M8 5v6M5.5 8h5" />
+      <path d="M5 2v-0.5M11 2v-0.5M5 14v0.5M11 14v0.5" />
     </svg>
   )
 }

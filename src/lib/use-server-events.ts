@@ -165,6 +165,15 @@ export function useServerEvents() {
           }
           break
 
+        // Data room events — dispatch as notifications
+        case 'dataroom.visitor_entered':
+          // Already broadcast as notification.created from the enter endpoint
+          break
+        case 'dataroom.document_viewed':
+        case 'dataroom.document_downloaded':
+          // Tracked server-side, no client-side dispatch needed
+          break
+
         // Activity events
         case 'activity.created':
           if (event.data?.id) {

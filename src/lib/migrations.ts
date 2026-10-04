@@ -865,6 +865,95 @@ const migrations: Migration[] = [
       db.exec(`CREATE INDEX IF NOT EXISTS idx_pipeline_runs_task_id ON pipeline_runs(task_id)`)
       db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_pipeline_run_id ON tasks(pipeline_run_id)`)
     }
+  },
+  {
+    id: '030_data_rooms',
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS data_rooms (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          workspace_id INTEGER NOT NULL DEFAULT 1,
+          name TEXT NOT NULL,
+          slug TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'draft',
+          branding TEXT NOT NULL DEFAULT '{}',
+          created_by TEXT,
+          created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_data_rooms_slug ON data_rooms(slug);
+        CREATE INDEX IF NOT EXISTS idx_data_rooms_workspace_id ON data_rooms(workspace_id);
+
+        CREATE TABLE IF NOT EXISTS data_room_documents (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          room_id INTEGER NOT NULL,
+          folder TEXT NOT NULL DEFAULT '',
+          filename TEXT NOT NULL,
+          original_name TEXT NOT NULL,
+          mime_type TEXT NOT NULL,
+          file_size INTEGER NOT NULL,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          allow_download INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          FOREIGN KEY (room_id) REFERENCES data_rooms(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_data_room_documents_room_id ON data_room_documents(room_id);
+
+        CREATE TABLE IF NOT EXISTS data_room_links (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          room_id INTEGER NOT NULL,
+          token TEXT NOT NULL UNIQUE,
+          name TEXT NOT NULL DEFAULT '',
+          is_active INTEGER NOT NULL DEFAULT 1,
+          passcode TEXT,
+          allow_download INTEGER NOT NULL DEFAULT 0,
+          expires_at INTEGER,
+          created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          FOREIGN KEY (room_id) REFERENCES data_rooms(id) ON DELETE CASCADE
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_data_room_links_token ON data_room_links(token);
+        CREATE INDEX IF NOT EXISTS idx_data_room_links_room_id ON data_room_links(room_id);
+
+        CREATE TABLE IF NOT EXISTS data_room_visitors (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          link_id INTEGER NOT NULL,
+          room_id INTEGER NOT NULL,
+          email TEXT NOT NULL,
+          name TEXT NOT NULL DEFAULT '',
+          company TEXT NOT NULL DEFAULT '',
+          session_token TEXT NOT NULL UNIQUE,
+          ip_address TEXT,
+          user_agent TEXT,
+          created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          FOREIGN KEY (link_id) REFERENCES data_room_links(id) ON DELETE CASCADE,
+          FOREIGN KEY (room_id) REFERENCES data_rooms(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_data_room_visitors_link_id ON data_room_visitors(link_id);
+        CREATE INDEX IF NOT EXISTS idx_data_room_visitors_room_id ON data_room_visitors(room_id);
+        CREATE INDEX IF NOT EXISTS idx_data_room_visitors_session_token ON data_room_visitors(session_token);
+
+        CREATE TABLE IF NOT EXISTS data_room_events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          visitor_id INTEGER NOT NULL,
+          room_id INTEGER NOT NULL,
+          document_id INTEGER,
+          event_type TEXT NOT NULL,
+          page_number INTEGER,
+          duration_seconds REAL,
+          metadata TEXT,
+          created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          FOREIGN KEY (visitor_id) REFERENCES data_room_visitors(id) ON DELETE CASCADE,
+          FOREIGN KEY (room_id) REFERENCES data_rooms(id) ON DELETE CASCADE,
+          FOREIGN KEY (document_id) REFERENCES data_room_documents(id) ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_data_room_events_visitor_id ON data_room_events(visitor_id);
+        CREATE INDEX IF NOT EXISTS idx_data_room_events_room_id ON data_room_events(room_id);
+        CREATE INDEX IF NOT EXISTS idx_data_room_events_document_id ON data_room_events(document_id);
+        CREATE INDEX IF NOT EXISTS idx_data_room_events_event_type ON data_room_events(event_type);
+      `)
+    }
   }
 ]
 
