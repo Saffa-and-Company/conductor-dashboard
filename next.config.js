@@ -1,6 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
+  outputFileTracingExcludes: {
+    '*': ['.data/**'],
+  },
   // Scope Turbopack to this project dir so it doesn't scan sibling repos
   // (fixes "Symlink points out of the filesystem root" panic from DataTrei/venv)
   turbopack: {
