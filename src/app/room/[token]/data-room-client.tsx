@@ -377,8 +377,18 @@ function DocumentViewer({
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [docLoading, setDocLoading] = useState(false)
   const [contentVisible, setContentVisible] = useState(true)
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set())
   const isMobile = useIsMobile()
   const accentColor = resolveAccent(branding)
+
+  const toggleFolder = (folder: string) => {
+    setCollapsedFolders(prev => {
+      const next = new Set(prev)
+      if (next.has(folder)) next.delete(folder)
+      else next.add(folder)
+      return next
+    })
+  }
 
   // Group documents by folder
   const folders = documents.reduce<Record<string, RoomDoc[]>>((acc, doc) => {
@@ -448,43 +458,68 @@ function DocumentViewer({
             />
           </div>
 
-          {/* Document list */}
+          {/* Document list — collapsible folders */}
           <div className="flex-1 overflow-y-auto p-2">
-            {Object.entries(folders).map(([folder, docs], folderIdx) => (
-              <div key={folder} className={folderIdx > 0 ? 'mt-3' : ''}>
-                {folder && (
-                  <p className="text-[11px] tracking-wider text-white/50 font-semibold px-2 pt-3 pb-1.5 uppercase">
-                    {folder}
-                  </p>
-                )}
-                {docs.map(doc => {
-                  const isSelected = selectedDoc?.id === doc.id
-                  return (
+            {Object.entries(folders).map(([folder, docs]) => {
+              const isCollapsed = collapsedFolders.has(folder)
+              const hasSelectedInFolder = docs.some(d => d.id === selectedDoc?.id)
+              const docCount = docs.length
+              return (
+                <div key={folder} className="mb-1">
+                  {folder ? (
                     <button
-                      key={doc.id}
-                      onClick={() => handleSelectDoc(doc)}
-                      className={`w-full text-left px-3 py-2.5 rounded-lg mb-0.5 transition-colors ${
-                        isSelected
-                          ? 'text-white'
-                          : 'text-white/60 hover:text-white hover:bg-white/5'
-                      }`}
-                      style={isSelected ? {
-                        backgroundColor: `${accentColor}15`,
-                        borderLeft: `2px solid ${accentColor}`,
-                      } : { borderLeft: '2px solid transparent' }}
+                      onClick={() => toggleFolder(folder)}
+                      className="w-full flex items-center justify-between px-2 py-2 rounded-lg hover:bg-white/5 transition-colors group"
                     >
-                      <div className="flex items-center gap-2">
-                        <DocIcon mime={doc.mime_type} filename={doc.original_name} />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs font-medium truncate">{doc.original_name}</p>
-                          <p className="text-[10px] text-white/30">{formatBytes(doc.file_size)}</p>
-                        </div>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <svg
+                          className={`w-3 h-3 text-white/40 transition-transform duration-150 ${isCollapsed ? '' : 'rotate-90'}`}
+                          viewBox="0 0 8 8" fill="currentColor"
+                        >
+                          <path d="M2 1l4 3-4 3V1z" />
+                        </svg>
+                        <span className="text-[12px] font-semibold text-white/60 uppercase tracking-wide truncate">
+                          {folder}
+                        </span>
                       </div>
+                      <span className="text-[10px] text-white/30 tabular-nums shrink-0 ml-2">
+                        {docCount}
+                      </span>
                     </button>
-                  )
-                })}
-              </div>
-            ))}
+                  ) : null}
+                  {(!folder || !isCollapsed) && (
+                    <div className={folder ? 'ml-1' : ''}>
+                      {docs.map(doc => {
+                        const isSelected = selectedDoc?.id === doc.id
+                        return (
+                          <button
+                            key={doc.id}
+                            onClick={() => handleSelectDoc(doc)}
+                            className={`w-full text-left px-3 py-2 rounded-lg mb-0.5 transition-colors ${
+                              isSelected
+                                ? 'text-white'
+                                : 'text-white/60 hover:text-white hover:bg-white/5'
+                            }`}
+                            style={isSelected ? {
+                              backgroundColor: `${accentColor}15`,
+                              borderLeft: `2px solid ${accentColor}`,
+                            } : { borderLeft: '2px solid transparent' }}
+                          >
+                            <div className="flex items-center gap-2">
+                              <DocIcon mime={doc.mime_type} filename={doc.original_name} />
+                              <div className="min-w-0 flex-1">
+                                <p className="text-[13px] font-medium truncate">{doc.original_name}</p>
+                                <p className="text-[10px] text-white/30">{formatBytes(doc.file_size)}</p>
+                              </div>
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </div>
       </div>
@@ -564,6 +599,8 @@ function DocumentViewer({
                   <XLSXViewer
                     url={`/api/room/${token}/documents/${selectedDoc.id}/file`}
                     accentColor={accentColor}
+                    branding={branding}
+                    docName={selectedDoc.original_name}
                   />
                 ) : (
                   <div className="flex items-center justify-center h-full">
@@ -799,7 +836,7 @@ function PDFViewer({ url, docId, token, accentColor }: { url: string; docId: num
 
 // ─── XLSX Viewer ─────────────────────────────────────────────────────
 
-function XLSXViewer({ url, accentColor }: { url: string; accentColor: string }) {
+function XLSXViewer({ url, accentColor, branding, docName }: { url: string; accentColor: string; branding: RoomBranding; docName: string }) {
   const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null)
   const [sheetNames, setSheetNames] = useState<string[]>([])
   const [activeSheet, setActiveSheet] = useState(0)
@@ -846,10 +883,19 @@ function XLSXViewer({ url, accentColor }: { url: string; accentColor: string }) 
     )
   }
 
-  const sheet = workbook.Sheets[sheetNames[activeSheet]]
+  const activeSheetName = sheetNames[activeSheet]
+  const isCoverSheet = activeSheetName?.toLowerCase() === 'cover'
+
+  const sheet = workbook.Sheets[activeSheetName]
   const data: (string | number | boolean | null)[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null })
   const headers = data[0] || []
   const rows = data.slice(1)
+
+  // Derive a display title from the document name
+  const displayTitle = docName
+    .replace(/\.(xlsx|xls)$/i, '')
+    .replace(/v\d+$/i, '')
+    .trim()
 
   return (
     <div className="flex flex-col h-full">
@@ -860,7 +906,7 @@ function XLSXViewer({ url, accentColor }: { url: string; accentColor: string }) 
             <button
               key={name}
               onClick={() => setActiveSheet(i)}
-              className={`px-4 py-2 text-xs whitespace-nowrap border-b-2 transition-colors ${
+              className={`px-4 py-2.5 text-sm whitespace-nowrap border-b-2 transition-colors ${
                 i === activeSheet
                   ? 'text-white bg-white/[0.05]'
                   : 'border-transparent text-white/40 hover:text-white/70 hover:bg-white/[0.03]'
@@ -873,58 +919,92 @@ function XLSXViewer({ url, accentColor }: { url: string; accentColor: string }) 
         </div>
       )}
 
-      {/* Table — high-contrast redesign */}
-      <div className="flex-1 overflow-auto">
-        {rows.length === 0 ? (
-          <div className="flex items-center justify-center h-full">
-            <p className="text-white/30 text-sm">Empty sheet</p>
+      {/* Cover sheet — branded splash page */}
+      {isCoverSheet ? (
+        <div className="flex-1 flex items-center justify-center p-8">
+          <div className="text-center max-w-lg">
+            {branding.logoUrl ? (
+              <img src={branding.logoUrl} alt="" className="h-16 mx-auto mb-8 object-contain" />
+            ) : (
+              <div
+                className="w-20 h-20 mx-auto mb-8 rounded-2xl flex items-center justify-center"
+                style={{ backgroundColor: `${accentColor}15` }}
+              >
+                <svg className="w-10 h-10" viewBox="0 0 24 24" fill="none" stroke={accentColor} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.7 }}>
+                  <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                  <polyline points="14,2 14,8 20,8" />
+                  <path d="M8 13h8M8 17h8M8 9h2" />
+                </svg>
+              </div>
+            )}
+            <h2 className="text-2xl font-bold text-white mb-3">{displayTitle || 'Capitalization Table'}</h2>
+            {branding.companyName && (
+              <p className="text-base text-white/50 mb-6">{branding.companyName}</p>
+            )}
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10">
+              <span className="text-sm text-white/40">
+                {sheetNames.length - 1} {sheetNames.length - 1 === 1 ? 'sheet' : 'sheets'} available
+              </span>
+            </div>
+            <p className="text-xs text-white/25 mt-8">
+              Select a tab above to view data
+            </p>
           </div>
-        ) : (
-          <table className="w-full border-collapse text-xs">
-            <thead className="sticky top-0 z-10">
-              <tr>
-                {headers.map((h, i) => (
-                  <th
-                    key={i}
-                    className={`px-3 py-3 text-left font-semibold text-white bg-[#1a1a2e] border-b border-white/10 whitespace-nowrap ${
-                      i === 0 ? 'sticky left-0 z-20 bg-[#1a1a2e]' : ''
-                    }`}
-                    style={i === 0 ? { borderLeft: `3px solid ${accentColor}` } : undefined}
-                  >
-                    {h != null ? String(h) : ''}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, ri) => {
-                const stripeBg = ri % 2 === 0 ? 'bg-[#12121f]' : 'bg-[#16162a]'
-                return (
-                  <tr key={ri} className={`${stripeBg} hover:bg-white/10 transition-colors`}>
-                    {headers.map((header, ci) => {
-                      const cell = row[ci]
-                      const isNum = typeof cell === 'number'
-                      const headerStr = header != null ? String(header) : ''
-                      return (
-                        <td
-                          key={ci}
-                          className={`px-3 py-2 border-b border-white/5 whitespace-nowrap ${
-                            ci === 0 ? `sticky left-0 z-[5] ${stripeBg}` : ''
-                          } ${
-                            isNum ? 'text-right text-white/80 tabular-nums font-mono' : 'text-white/90'
-                          }`}
-                        >
-                          {formatCellValue(cell, headerStr)}
-                        </td>
-                      )
-                    })}
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
+        </div>
+      ) : (
+        /* Data table — high-contrast, larger text */
+        <div className="flex-1 overflow-auto">
+          {rows.length === 0 ? (
+            <div className="flex items-center justify-center h-full">
+              <p className="text-white/30 text-sm">Empty sheet</p>
+            </div>
+          ) : (
+            <table className="w-full border-collapse text-sm">
+              <thead className="sticky top-0 z-10">
+                <tr>
+                  {headers.map((h, i) => (
+                    <th
+                      key={i}
+                      className={`px-4 py-3 text-left font-semibold text-white bg-[#1a1a2e] border-b border-white/15 whitespace-nowrap ${
+                        i === 0 ? 'sticky left-0 z-20 bg-[#1a1a2e]' : ''
+                      }`}
+                      style={i === 0 ? { borderLeft: `3px solid ${accentColor}` } : undefined}
+                    >
+                      {h != null ? String(h) : ''}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, ri) => {
+                  const stripeBg = ri % 2 === 0 ? 'bg-[#111120]' : 'bg-[#181830]'
+                  return (
+                    <tr key={ri} className={`${stripeBg} hover:bg-white/[0.12] transition-colors`}>
+                      {headers.map((header, ci) => {
+                        const cell = row[ci]
+                        const isNum = typeof cell === 'number'
+                        const headerStr = header != null ? String(header) : ''
+                        return (
+                          <td
+                            key={ci}
+                            className={`px-4 py-2.5 border-b border-white/5 whitespace-nowrap ${
+                              ci === 0 ? `sticky left-0 z-[5] ${stripeBg}` : ''
+                            } ${
+                              isNum ? 'text-right text-white tabular-nums font-mono' : 'text-white'
+                            }`}
+                          >
+                            {formatCellValue(cell, headerStr)}
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
     </div>
   )
 }
